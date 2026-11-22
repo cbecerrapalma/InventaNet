@@ -1,0 +1,75 @@
+@using Inventa.Web.Models.Bodegas
+@using Inventa.Web.Models.Inventario
+@using Inventa.Web.Models.Productos
+@inject Inventa.Web.Services.Bodegas.BodegasApiService BodegaSvc
+@inject Inventa.Web.Services.Inventario.InventarioApiService InvSvc
+@inject ISnackbar Snackbar
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">Cantidad positiva entra al stock; negativa sale.</MudText>
+            @if (_loadingBodegas){<LoadingState Message="Cargando bodegas..." />}
+            else
+            {
+                <MudSelect T="int" Value="_bodega" ValueChanged="OnBodegaChanged" Label="Bodega" Variant="Variant.Outlined" Dense="true" Required="true" aria-label="Bodega ajuste">
+                    @foreach(var b in _bodegas){<MudSelectItem Value="@b.IdBodega">@b.Codigo - @b.Nombre</MudSelectItem>}
+                </MudSelect>
+                <MudText Typo="Typo.subtitle2">Productos (@FormatoCl.Miles(_lineas.Count))</MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="6"><BuscadorPresentacion Value="_pres" ValueChanged="@((PresentacionBusquedaDto? v) => _pres = v)" Uso="inventario" IdBodega="_bodega" Required="false" /></MudItem>
+                    <MudItem xs="8" md="3"><MudNumericField Culture="@FormatoCl.Cultura" T="decimal" @bind-Value="_cant" Label="Cantidad" Variant="Variant.Outlined" Margin="Margin.Dense" Format="#,0.####" HelperText="+ entra · − sale" aria-label="Cantidad ajuste" data-testid="inv-cantidad" /></MudItem>
+                    <MudItem xs="4" md="3" Class="d-flex align-center"><MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" OnClick="AddItem" aria-label="Agregar producto" data-testid="inv-agregar">Agregar</MudButton></MudItem>
+                </MudGrid>
+                @if (_lineas.Count==0){<MudAlert Severity="Severity.Info">Agregue al menos un producto.</MudAlert>}
+                else
+                {
+                    <MudTable Items="_lineas" Dense="true" Hover="true" Elevation="0" Bordered="true" data-testid="inv-items">
+                        <HeaderContent><MudTh>Producto</MudTh><MudTh>Cantidad</MudTh><MudTh></MudTh></HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Producto">@context.Pres.ProdNombre · @context.Pres.VarNombre<br/><MudText Typo="Typo.caption" Color="Color.Secondary">@context.Pres.VarCodigo</MudText></MudTd>
+                            <MudTd DataLabel="Cantidad"><MudChip T="string" Size="Size.Small" Color="@(context.Cantidad>0?Color.Success:Color.Error)">@FormatoCl.Cantidad(context.Cantidad)</MudChip></MudTd>
+                            <MudTd><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(()=>Remove(context))" aria-label="Quitar producto" /></MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            }
+            @if (_error is not null){<MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_error.Detail<br/><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText></MudAlert>}
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_submitting || _lineas.Count==0" aria-label="Ajustar">@(_submitting?"Ajustando...":"Ajustar")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code{
+    [CascadingParameter] IMudDialogInstance MudDialog{get;set;}=default!;
+    private List<BodegaDto> _bodegas=[]; private bool _loadingBodegas=true; private bool _submitting; private Inventa.Web.Models.Api.ApiError? _error;
+    private sealed class LineaInv{ public PresentacionBusquedaDto Pres{get;set;}=default!; public decimal Cantidad{get;set;} }
+    private int _bodega; private PresentacionBusquedaDto? _pres; private decimal _cant;
+    private List<LineaInv> _lineas=[];
+    protected override async Task OnInitializedAsync(){ try{ _bodegas=await BodegaSvc.ListAsync(CancellationToken.None)??[];}catch{} _loadingBodegas=false; if(_bodegas.Count>0) _bodega=_bodegas[0].IdBodega; }
+    private void OnBodegaChanged(int v)=> _bodega=v;
+    private void AddItem(){
+        var p=_pres;
+        if(p is null){Snackbar.Add("Elija un producto.",Severity.Warning);return;}
+        if(_cant==0){Snackbar.Add("La cantidad no puede ser 0.",Severity.Warning);return;}
+        var existente=_lineas.FirstOrDefault(l=>l.Pres.IdPresProd==p.IdPresProd);
+        if(existente is null) _lineas.Add(new LineaInv{ Pres=p, Cantidad=_cant });
+        else { existente.Cantidad+=_cant; if(existente.Cantidad==0) _lineas.Remove(existente); }
+        _pres=null; _cant=0; StateHasChanged();
+    }
+    private void Remove(LineaInv l)=> _lineas.Remove(l);
+    private void Cancel()=> MudDialog.Cancel();
+    private async Task Submit(){
+        if(_bodega==0){Snackbar.Add("Seleccione bodega.",Severity.Warning);return;}
+        if(_lineas.Count==0){Snackbar.Add("Agregue al menos un producto.",Severity.Warning);return;}
+        _submitting=true; _error=null; StateHasChanged();
+        try{
+            var dto=new AjustarDto{ IdBodega=_bodega, Items=_lineas.Select(l=> new AjusteItemSp{ IdPresProd=l.Pres.IdPresProd, IdLote=null, CantAjuste=l.Cantidad }).ToList() };
+            await InvSvc.AjustarAsync(dto, CancellationToken.None);
+            Snackbar.Add("Ajuste realizado.",Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); Snackbar.Add($"No fue posible ajustar. Código de seguimiento: {_error.CorrelationId}",Severity.Error); }
+        finally{ _submitting=false; StateHasChanged(); }
+    }
+}

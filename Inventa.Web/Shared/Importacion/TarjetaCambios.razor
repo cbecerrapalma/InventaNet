@@ -1,0 +1,24 @@
+@* S91.4: TarjetaCambios — resumen de cambios (nuevas / modificadas / sin cambios + conteo por campo). *@
+@using Inventa.Web.Models.Importacion
+
+<MudPaper Class="pa-3 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)" data-testid="resumen-cambios">
+    <MudText Typo="Typo.subtitle1" HtmlTag="h2" Class="mb-2">Resumen de cambios</MudText>
+    <MudGrid Spacing="2">
+        <MudItem xs="4"><MudText Typo="Typo.caption">Nuevas</MudText><MudText Typo="Typo.h6" Color="Color.Success" data-testid="cambios-nuevos">@FormatoCl.Miles(Resumen.Nuevos)</MudText></MudItem>
+        <MudItem xs="4"><MudText Typo="Typo.caption">Modificadas</MudText><MudText Typo="Typo.h6" Color="Color.Info" data-testid="cambios-modificados">@FormatoCl.Miles(Resumen.Modificados)</MudText></MudItem>
+        <MudItem xs="4"><MudText Typo="Typo.caption">Sin cambios</MudText><MudText Typo="Typo.h6" data-testid="cambios-sin-cambios">@FormatoCl.Miles(Resumen.SinCambios)</MudText></MudItem>
+    </MudGrid>
+    @if (Resumen.PorCampo.Count > 0)
+    {
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2" data-testid="cambios-por-campo">
+            @foreach (var (campo, n) in Resumen.PorCampo)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@campo: @FormatoCl.Miles(n)</MudChip>
+            }
+        </MudStack>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public ResumenCambiosDto Resumen { get; set; } = new();
+}

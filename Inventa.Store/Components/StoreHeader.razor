@@ -1,0 +1,120 @@
+@* S68 cabecera presentacional: anuncio + marca + buscador + sesion (login/usuario/logout).
+   U3: header compacto en móvil (< 600px): fila 1 = menú + marca truncada + icono cuenta; fila 2 = buscador.
+   U10: no mostrar botón "Ingresar" cuando estamos en /login. *@
+@inject NavigationManager Nav
+@implements IDisposable
+
+<header class="store-mega-header" data-testid="store-shell-header">
+    @if (!string.IsNullOrWhiteSpace(AnuncioTexto))
+    {
+        <div class="store-announce" role="region" aria-label="Anuncio de la tienda" data-testid="store-announce">@AnuncioTexto</div>
+    }
+    <div class="store-header__row">
+        @* S62.3 botón nativo (no MudButton) para exponer ElementReference y devolver el foco al cerrar el drawer. *@
+        <button type="button" class="store-menu__button" @ref="_menuBtn" @onclick="@OnMenuClick" aria-label="Abrir categorías" aria-expanded="@(MenuOpen ? "true" : "false")" aria-controls="store-category-drawer" data-testid="store-menu-button">
+            <MudIcon Icon="@Icons.Material.Filled.Menu" aria-hidden="true" />
+            <span class="store-menu__text">Categorías</span>
+        </button>
+        <a href="/" class="store-brand" aria-label="Ir al inicio: @Nombre" data-testid="store-brand-link">
+            @if (!string.IsNullOrWhiteSpace(LogoUrl))
+            {
+                <img src="@LogoUrl" alt="@Nombre" class="store-brand__logo" />
+            }
+            <span class="store-brand__name">@Nombre</span>
+        </a>
+        <form class="store-search" role="search" @onsubmit="OnSubmit" @onsubmit:preventDefault="true" data-testid="store-search-form">
+            <label class="sr-only" for="store-search-input">Buscar productos</label>
+            <input id="store-search-input" class="store-search__input" type="search" name="q" placeholder="Buscar productos…" autocomplete="off" @bind="_search" @bind:event="oninput" data-testid="store-search-input" />
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Search" aria-label="Buscar" data-testid="store-search-submit" />
+        </form>
+        @* S68 sesion: solo muestra nombre/boton logout si autenticado; sin AuthorizeRouteView. *@
+        <div class="store-header__session" data-testid="store-session">
+            @if (IsAuthenticated)
+            {
+                <MudAvatar Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Class="me-2" data-testid="store-user-avatar">
+                    @UserDisplayName[..1].ToUpperInvariant()
+                </MudAvatar>
+                <span class="store-user__name me-3" data-testid="store-user-name">@UserDisplayName</span>
+                <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small" OnClick="OnLogout" data-testid="store-logout-btn">
+                    <MudIcon Icon="@Icons.Material.Filled.Logout" Size="Size.Small" Class="me-1" />
+                    Salir
+                </MudButton>
+            }
+            else if (!IsOnLoginPage)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="@LoginHref" data-testid="store-login-btn">
+                    <MudIcon Icon="@Icons.Material.Filled.Login" Size="Size.Small" Class="me-1" />
+                    <span class="store-login__text">Ingresar</span>
+                </MudButton>
+            }
+            else
+            {
+                @* U10: en /login mostramos solo el icono de cuenta en móvil *@
+                <a href="@LoginHref" class="store-login__icon" aria-label="Ingresar a tu cuenta" data-testid="store-login-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Login" Size="Size.Medium" Color="Color.Primary" aria-hidden="true" />
+                </a>
+            }
+        </div>
+    </div>
+</header>
+
+@code {
+    // S62.3 parámetros de entrada (MainLayout pasa el estado).
+    [Parameter] public string Nombre { get; set; } = "Nuestra tienda";
+    [Parameter] public string? LogoUrl { get; set; }
+    [Parameter] public string? AnuncioTexto { get; set; }
+    [Parameter] public string? Query { get; set; }
+    [Parameter] public EventCallback OnMenuClick { get; set; }
+    [Parameter] public bool MenuOpen { get; set; }
+
+    // S68 sesion (inicializado por MainLayout via AuthenticationStateChanged)
+    [Parameter] public bool IsAuthenticated { get; set; }
+    [Parameter] public string UserDisplayName { get; set; } = "";
+    [Parameter] public string LoginHref { get; set; } = "/login";
+    [Parameter] public EventCallback OnLogout { get; set; }
+    [Parameter] public bool SessionReady { get; set; }
+    // U10: ocultar botón "Ingresar" completo cuando estamos en /login
+    [Parameter] public bool IsOnLoginPage { get; set; }
+
+    string _search = "";
+    ElementReference _menuBtn;
+
+    protected override void OnInitialized()
+    {
+        _search = Query ?? "";
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    protected override void OnParametersSet()
+    {
+        if ((Query ?? "") != _search) _search = Query ?? "";
+    }
+
+    void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        var q = QueryFromUrl(e.Location);
+        if (q != _search) { _search = q; StateHasChanged(); }
+    }
+
+    void OnSubmit()
+    {
+        var v = _search.Trim();
+        Nav.NavigateTo(string.IsNullOrEmpty(v) ? "/" : "/?q=" + Uri.EscapeDataString(v));
+    }
+
+    public ValueTask FocusMenuButtonAsync() => _menuBtn.FocusAsync();
+
+    static string QueryFromUrl(string url)
+    {
+        var qi = url.IndexOf('?', StringComparison.Ordinal);
+        if (qi < 0) return "";
+        foreach (var part in url[(qi + 1)..].Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = part.Split('=', 2);
+            if (kv.Length == 2 && kv[0] == "q") return Uri.UnescapeDataString(kv[1].Replace('+', ' '));
+        }
+        return "";
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

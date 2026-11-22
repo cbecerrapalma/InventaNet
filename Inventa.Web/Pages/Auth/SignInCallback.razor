@@ -1,0 +1,77 @@
+@page "/signin-callback"
+@layout AuthLayout
+@using Inventa.Web.Models.Api
+@using Inventa.Web.Services.Auth
+@inject AuthService AuthService
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+@* S127 D3 — PassPlat vuelve aquí con ?codigo=… (un solo uso); se canjea por la sesión, como el login con clave. *@
+<PageTitle>Ingresando | InventaNet</PageTitle>
+
+<MudPaper Elevation="0" Class="pa-0" data-testid="signin-callback">
+    <MudStack AlignItems="AlignItems.Center" Spacing="2">
+        <MudText Typo="Typo.h5" HtmlTag="h1" Class="mb-0">Ingresar</MudText>
+        @if (_error is null)
+        {
+            <MudProgressCircular Indeterminate="true" data-testid="signin-callback-cargando" />
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Completando el inicio de sesión...</MudText>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-3" data-testid="signin-callback-error">@_error</MudAlert>
+            <MudButton Href="/login" Color="Color.Primary" Variant="Variant.Filled" FullWidth="true" data-testid="signin-callback-volver">Volver a ingresar</MudButton>
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    private const string MensajeInvalido = "El inicio de sesión externo no es válido o venció.";
+
+    [SupplyParameterFromQuery(Name = "codigo")]
+    public string? Codigo { get; set; }
+
+    // S128 D6 — PassPlat vuelve aquí con ?error=… si el proveedor rechaza o el login falla; nunca se muestra el texto de la URL.
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(Error))
+        {
+            _error = Error switch
+            {
+                "proveedor_rechazo" => "Inicio de sesión cancelado en el proveedor.",
+                "mfa_no_disponible" => "No se pudo enviar el código de verificación. Intenta de nuevo.",
+                _ => "No se pudo completar el inicio de sesión con el proveedor."
+            };
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(Codigo))
+        {
+            _error = MensajeInvalido;
+            return;
+        }
+        try
+        {
+            await AuthService.CompletarLoginExternoAsync(Codigo);
+            Snackbar.Add("Sesión iniciada", Severity.Success);
+            Nav.NavigateTo("/", replace: true);
+        }
+        catch (ApiException)
+        {
+            _error = MensajeInvalido;
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Sesión ya persistida; solo falló la resolución del tenant local (igual que Login.razor).
+            _error = ex.Message;
+        }
+        catch (Exception)
+        {
+            _error = "Error inesperado. Intente nuevamente.";
+        }
+    }
+}

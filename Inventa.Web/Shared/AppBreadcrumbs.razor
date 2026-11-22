@@ -1,0 +1,84 @@
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthStateProvider
+@inject CBP.Acceso.ManifiestoAcceso Catalogo
+@implements IDisposable
+
+@if (_isAuthenticated)
+{
+    <MudBreadcrumbs Items="_items" Separator="›" Class="pa-0 mb-2" />
+}
+
+@code {
+    /// <summary>S92: etiqueta opcional del último tramo, definida por la página (ver MigaContexto).</summary>
+    [Parameter] public MigaContexto? Contexto { get; set; }
+    private List<BreadcrumbItem> _items = [];
+    private bool _isAuthenticated;
+    protected override async Task OnInitializedAsync()
+    {
+        await UpdateAuthStateAsync();
+        Build(Nav.Uri);
+        Nav.LocationChanged += OnLocationChanged;
+        if (Contexto is not null) Contexto.Cambio += OnMigaCambio;
+    }
+    private void OnMigaCambio() { Build(Nav.Uri); _ = InvokeAsync(StateHasChanged); }
+    protected override void OnParametersSet() => Build(Nav.Uri);
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        _ = UpdateAuthStateAndBuildAsync(e.Location);
+    }
+    private async Task UpdateAuthStateAndBuildAsync(string location)
+    {
+        await UpdateAuthStateAsync();
+        Build(location);
+        await InvokeAsync(StateHasChanged);
+    }
+    private void Build(string uri)
+    {
+        var path = new Uri(uri).AbsolutePath.Trim('/');
+        var segs = string.IsNullOrWhiteSpace(path) ? Array.Empty<string>() : path.Split('/');
+        var map = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [""]="Inicio", ["productos"]="Productos", ["importaciones"]="Importaciones",
+            ["importar"]="Importar", ["nueva"]="Nueva", ["catalogos"]="Catálogos", ["categorias"]="Categorías", ["marcas"]="Marcas",
+            ["unidades"]="Unidades", ["metodos-pago"]="Métodos de Pago", ["atributos"]="Atributos",
+            ["clientes"]="Clientes", ["proveedores"]="Proveedores", ["bodegas"]="Bodegas",
+            ["inventario"]="Inventario", ["stock"]="Stock", ["stock-disponible"]="Stock Disponible",
+            ["movimientos"]="Movimientos", ["lotes"]="Lotes", ["transferencias"]="Transferencias", ["ajustes"]="Ajustes",
+            ["compras"]="Compras", ["ordenes"]="Órdenes", ["ventas"]="Ventas", ["precios"]="Precios", ["compra"]="Compra",
+            ["configuracion"]="Configuración", ["tenant"]="Tenant",
+            ["acceso"]="Acceso y permisos" // S95 K5.1: ventana técnica excluida del catálogo (no está en el manifiesto)
+        };
+        if (segs.Length==0)
+            _items = [ new BreadcrumbItem("Inicio", href:null, icon:Icons.Material.Filled.Home, disabled:true) ];
+        else
+        {
+            _items = [ new BreadcrumbItem("Inicio", href:"/", icon:Icons.Material.Filled.Home) ];
+            var acc = "";
+            for (int i = 0; i < segs.Length; i++)
+            {
+                var s = segs[i];
+                acc += "/" + s;
+                // S95 K5: si el tramo acumulado es la ruta de una ventana, su nombre sale del catálogo generado
+                // (nombre del menú); el diccionario queda solo para tramos sin página (p. ej. /inventario).
+                var label = NombreVentana(acc) ?? (map.TryGetValue(s, out var v) ? v : s);
+                var isLast = i == segs.Length - 1;
+                if (isLast && Contexto?.Etiqueta is { Length: > 0 } et
+                    && string.Equals(Contexto.Ruta, acc, StringComparison.OrdinalIgnoreCase))
+                    label = et;
+                _items.Add(new BreadcrumbItem(label, href: isLast ? null : acc, disabled:isLast));
+            }
+        }
+    }
+    private string? NombreVentana(string ruta) => Catalogo.Areas.SelectMany(a => a.Modulos)
+        .FirstOrDefault(m => string.Equals(m.Ruta, ruta, StringComparison.OrdinalIgnoreCase))?.Nombre;
+    private async Task UpdateAuthStateAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _isAuthenticated = authState.User?.Identity?.IsAuthenticated ?? false;
+    }
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+        if (Contexto is not null) Contexto.Cambio -= OnMigaCambio;
+    }
+}

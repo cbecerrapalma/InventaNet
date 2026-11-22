@@ -1,0 +1,221 @@
+@page "/contacto"
+@inject IContactApiService ContactApi
+@inject NavigationManager Nav
+@inject StorefrontState SfState
+@inject CatalogApiService CatApi
+@inject ILogger<Contacto> Logger
+
+<PageTitle>Contáctanos | @_storeName</PageTitle>
+<HeadContent>
+    <meta name="description" content="Formulario de contacto de @_storeName. Estamos para ayudarte." />
+</HeadContent>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-6">
+    <MudText Typo="Typo.h4" Style="font-weight:600;" Class="mb-4" HtmlTag="h1">Contáctanos</MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">Completa el formulario y te responderemos a la brevedad.</MudText>
+
+    @if (_submitResult == SubmitResult.Success)
+    {
+        <MudAlert Severity="Severity.Success" Class="mb-4" role="status" data-testid="contact-success">
+            <MudStack>
+                <MudText Typo="Typo.subtitle1">¡Mensaje enviado!</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Gracias por contactarnos. Hemos recibido tu mensaje y te responderemos pronto.</MudText>
+                @if (!string.IsNullOrWhiteSpace(_trackingId))
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Referencia: @_trackingId</MudText>
+                }
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => Nav.NavigateTo("/"))" Class="mt-3" data-testid="contact-back">Volver al catálogo</MudButton>
+            </MudStack>
+        </MudAlert>
+    }
+    else
+    {
+        <EditForm Model="_model" OnValidSubmit="HandleValidSubmit" Class="store-contact-form" data-testid="contact-form">
+            <DataAnnotationsValidator />
+            <ValidationSummary Class="mud-alert mud-severity-error mb-4" />
+
+            @* Honeypot: oculto accesible *@
+            <div class="store-contact__honeypot" aria-hidden="true" tabindex="-1" data-testid="contact-honeypot">
+                <label for="website" class="visually-hidden">No completar este campo</label>
+                <input type="text" id="website" name="Website" @bind="_model.Website" autocomplete="off" style="display:none;" tabindex="-1" />
+            </div>
+
+            <MudGrid Spacing="3">
+                <MudItem xs="12" md="6">
+                    <MudTextField Label="Nombre" @bind-Value="_model.Nombre" For="@(() => _model.Nombre)" Required="true" RequiredError="El nombre es obligatorio" minlength="2" MaxLength="80" Class="mb-3" data-testid="contact-nombre" />
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_model.Email"
+                                  Label="Correo electrónico"
+                                  Required
+                                  RequiredError="Ingresa tu correo electrónico"
+                                  InputType="InputType.Email"
+                                  MaxLength="254"
+                                  Class="mb-3"
+                                  data-testid="contact-email" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField Label="Teléfono" @bind-Value="_model.Telefono" For="@(() => _model.Telefono)" MaxLength="30" Placeholder="+56 9 1234 5678" HelperText="Opcional" Class="mb-3" data-testid="contact-telefono" />
+                </MudItem>
+                @if (_productoNombre is not null)
+                {
+                    <MudItem xs="12">
+                        <MudTextField Label="Producto consultado" @bind-Value="_productoNombre" For="@(() => _productoNombre)" Disabled="true" Class="mb-3" data-testid="contact-producto" />
+                    </MudItem>
+                }
+                <MudItem xs="12">
+                    <MudTextField Label="Mensaje" @bind-Value="_model.Mensaje" Required="true" RequiredError="El mensaje es obligatorio" minlength="10" MaxLength="2000" HelperText="Mínimo 10 caracteres." Counter="2000" Lines="6" Class="mb-3" data-testid="contact-mensaje" />
+                </MudItem>
+                <MudItem xs="12">
+                    @* MudBlazor 9: MudCheckBox<T> expone Value/ValueChanged (Checked no existe: MUD0002). *@
+                    <MudCheckBox T="bool" Value="_model.Consentimiento" ValueChanged="OnConsentimientoChanged" Label="Acepto el tratamiento de mis datos personales para responder a esta consulta. No se usarán para otros fines." Class="mb-3" data-testid="contact-consent" />
+                    @if (_consentError != null)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Error" data-testid="contact-consent-error">@_consentError</MudText>
+                    }
+                    <ValidationMessage For="@(() => _model.Consentimiento)" Class="mud-text mud-typo-caption mud-error" />
+                </MudItem>
+            </MudGrid>
+
+            @* MudBlazor 9: el parámetro es ButtonType (Type es ilegal: MUD0002 y no hace submit). *@
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       ButtonType="ButtonType.Submit" Disabled="_submitting" Class="store-contact__submit" data-testid="contact-submit">
+                @if (_submitting)
+                {
+                    <MudIcon Icon="@Icons.Material.Filled.HourglassEmpty" Size="Size.Small" Class="me-2" />
+                    <span>Enviando...</span>
+                }
+                else
+                {
+                    <MudIcon Icon="@Icons.Material.Filled.Send" Size="Size.Small" Class="me-2" />
+                    <span>Enviar mensaje</span>
+                }
+            </MudButton>
+
+            @if (_error != null)
+            {
+                <MudAlert Severity="Severity.Error" Class="mt-3" data-testid="contact-error">
+                    @_error
+                    @if (!string.IsNullOrWhiteSpace(_correlationId))
+                    {
+                        <br />
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Referencia: @_correlationId</MudText>
+                    }
+                    @if (_errorResponse?.RetryAfter.HasValue == true)
+                    {
+                        <br />
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Reintenta en @_errorResponse.RetryAfter segundos.</MudText>
+                    }
+                </MudAlert>
+            }
+        </EditForm>
+    }
+</MudContainer>
+
+@code {
+    private enum SubmitResult { None, Success }
+    private SubmitResult _submitResult = SubmitResult.None;
+    private bool _submitting;
+    private string? _error;
+    private string? _correlationId;
+    private ContactErrorResponse? _errorResponse;
+    private string? _trackingId;
+    private string _storeName = "Inventa";
+    private string? _productoNombre;
+
+    private string? _consentError;
+
+    private ContactSendRequest _model = new ContactSendRequest
+    {
+        Nombre = "",
+        Email = "",
+        Telefono = null,
+        Mensaje = "",
+        Consentimiento = false,
+        ProductoId = null,
+        Website = ""
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var profile = await SfState.GetAsync();
+            _storeName = SfState.DisplayName(profile);
+
+            // Si viene ?producto={id}, mostrar nombre y enviarlo
+            var uri = new Uri(Nav.Uri);
+            var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+            var prodIdStr = query["producto"];
+            if (long.TryParse(prodIdStr, out var prodId))
+            {
+                _model.ProductoId = prodId;
+                // S122 D2: se muestra el nombre del catálogo público; el id viaja igual aunque no se encuentre.
+                _productoNombre = await NombreProductoAsync(prodId);
+            }
+        }
+        catch { _storeName = "Inventa"; }
+    }
+
+    private async Task<string?> NombreProductoAsync(long idProd)
+    {
+        try
+        {
+            var nombre = (await CatApi.GetProductAsync(idProd))?.Nombre;
+            return string.IsNullOrWhiteSpace(nombre) ? null : nombre;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or NotSupportedException)
+        {
+            Logger.LogWarning(ex, "Contacto: no se pudo leer el producto {IdProd}", idProd);
+            return null;
+        }
+    }
+
+    // S96.1 D3: sin consentimiento no se envía nada; el aviso queda junto a la casilla.
+    private void OnConsentimientoChanged(bool value)
+    {
+        _model.Consentimiento = value;
+        if (value) _consentError = null;
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        if (!_model.Consentimiento)
+        {
+            _consentError = "Debes aceptar el tratamiento de tus datos para enviar el mensaje.";
+            return;
+        }
+        _consentError = null;
+        _submitting = true;
+        _error = null;
+        _correlationId = null;
+        _errorResponse = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await ContactApi.SendAsync(_model);
+            if (result.Success && result.Data != null)
+            {
+                _trackingId = result.Data.TrackingId;
+                _submitResult = SubmitResult.Success;
+            }
+            else
+            {
+                _error = result.Error?.Detail ?? "Error enviando el mensaje.";
+                _correlationId = result.Data?.CorrelationId;
+                _errorResponse = result.Error;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = "No se pudo enviar el mensaje. Intenta más tarde.";
+            Logger?.LogError(ex, "Contacto submit error");
+        }
+        finally
+        {
+            _submitting = false;
+            StateHasChanged();
+        }
+    }
+}

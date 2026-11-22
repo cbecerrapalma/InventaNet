@@ -1,0 +1,93 @@
+@using Inventa.Web.Models.Compras
+@using Inventa.Web.Models.Productos
+@inject Inventa.Web.Services.Compras.ComprasApiService ComprasSvc
+@inject Inventa.Web.Services.Proveedores.ProveedoresApiService ProveedoresSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.body2" Color="Color.Secondary">La orden queda Pendiente hasta recepcionarla. Busque cada producto por código, nombre o código de barras.</MudText>
+            @if (_loadingProv){<LoadingState Message="Cargando proveedores..." />}
+            else
+            {
+                <MudSelect T="int" Value="_model.IdProveedor" ValueChanged="OnProvChanged" Label="Proveedor" Variant="Variant.Outlined" Required="true" aria-label="Proveedor">
+                    @foreach(var p in _proveedores){<MudSelectItem Value="@p.IdProveedor">@p.Codigo - @p.RazonSocial</MudSelectItem>}
+                </MudSelect>
+                @if(_proveedores.Count==0){<MudAlert Severity="Severity.Warning">No hay proveedores: cree uno en Proveedores.</MudAlert>}
+                <MudDatePicker Label="Fecha" Date="_date" DateChanged="OnDateChanged" Variant="Variant.Outlined" Required="true" aria-label="Fecha orden" />
+                <MudTextField @bind-Value="_model.Observacion" Label="Observaciones" Variant="Variant.Outlined" MaxLength="500" Lines="3" aria-label="Observaciones" HelperText="Opcional" />
+
+                <MudDivider />
+                <MudText Typo="Typo.subtitle2">Productos (@FormatoCl.Miles(_detalles.Count)) <MudChip T="string" Size="Size.Small" Color="Color.Primary">Total @FormatoCl.Moneda(_total)</MudChip></MudText>
+
+                @foreach(var (d, idx) in _detalles.Select((x,i)=>(x,i))){
+                    <MudPaper Elevation="0" Class="pa-2" Style="border:1px solid var(--mud-palette-lines-default)" data-testid="linea-orden">
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12">
+                                <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1">
+                                    <div class="flex-grow-1" style="min-width:0"><BuscadorPresentacion Value="d.Pres" ValueChanged="@((PresentacionBusquedaDto? v) => OnPresChanged(d, v))" Uso="compra" /></div>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="()=>RemoveLine(idx)" aria-label="Quitar producto" />
+                                </MudStack>
+                            </MudItem>
+                            <MudItem xs="6" md="4">
+                                <MudNumericField Culture="@FormatoCl.Cultura" T="decimal" Value="d.Cantidad" ValueChanged="v=>{d.Cantidad=v; StateHasChanged();}" Label="Cantidad" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0.0001m" Format="#,0.####" Required="true" aria-label="Cantidad" data-testid="oc-cantidad" />
+                            </MudItem>
+                            <MudItem xs="6" md="4">
+                                <MudNumericField Culture="@FormatoCl.Cultura" T="decimal" Value="d.PrecioUnitario" ValueChanged="v=>{d.PrecioUnitario=v; StateHasChanged();}" Label="Precio unit." Variant="Variant.Outlined" Margin="Margin.Dense" Min="0m" Format="N0" Required="true" aria-label="Precio unitario" data-testid="oc-precio" />
+                            </MudItem>
+                            <MudItem xs="12" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">@(d.Pres is null ? "" : d.Pres.VarCodigo + " · ")Subtotal: @FormatoCl.Moneda(d.Cantidad*d.PrecioUnitario)</MudText></MudItem>
+                        </MudGrid>
+                    </MudPaper>
+                }
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddLine" aria-label="Agregar producto">Agregar producto</MudButton>
+                @if(_detalles.Count==0){<MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Sin productos, la orden no se podrá recepcionar.</MudAlert>}
+            }
+            @if (_error is not null){<MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_error.Detail<br/><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText></MudAlert>}
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="_submitting || _loadingProv" aria-label="Crear orden">@(_submitting?"Creando...":"Crear")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code{
+    [CascadingParameter] IMudDialogInstance MudDialog{get;set;}=default!;
+    // S117 (P19): cada línea elige la presentación con el buscador; el precio sugerido es el costo promedio de la variante.
+    private sealed class LineaOrden{ public PresentacionBusquedaDto? Pres{get;set;} public decimal Cantidad{get;set;}=1; public decimal PrecioUnitario{get;set;} }
+    private CreateOrdenDto _model = new(){ Fecha = DateOnly.FromDateTime(DateTime.Today) };
+    private DateTime? _date = DateTime.Today;
+    private List<Inventa.Web.Models.Proveedores.ProveedorDto> _proveedores = [];
+    private List<LineaOrden> _detalles = [];
+    private decimal _total => _detalles.Sum(d=>d.Cantidad*d.PrecioUnitario);
+    private bool _loadingProv=true; private bool _submitting; private Inventa.Web.Models.Api.ApiError? _error;
+    protected override async Task OnInitializedAsync(){
+        try{ _proveedores = await ProveedoresSvc.ListAsync(CancellationToken.None) ?? []; if(_proveedores.Count>0) _model.IdProveedor = _proveedores[0].IdProveedor; }
+        catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); }
+        AddLine();
+        _loadingProv=false;
+    }
+    private void OnProvChanged(int v)=> _model.IdProveedor=v;
+    private void OnDateChanged(DateTime? v){ _date=v; if(v.HasValue) _model.Fecha = DateOnly.FromDateTime(v.Value); }
+    private void AddLine()=> _detalles.Add(new LineaOrden());
+    private void RemoveLine(int idx){ if(idx>=0 && idx<_detalles.Count) _detalles.RemoveAt(idx); StateHasChanged(); }
+    private void OnPresChanged(LineaOrden d, PresentacionBusquedaDto? v){
+        d.Pres=v;
+        if(v is not null && v.CostoProm>0) d.PrecioUnitario=decimal.Round(v.CostoProm, 0, MidpointRounding.AwayFromZero);
+    }
+    private void Cancel()=> MudDialog.Cancel();
+    private async Task Save(){
+        if(_model.IdProveedor==0){Snackbar.Add("Seleccione el proveedor.",Severity.Warning);return;}
+        if(_detalles.Any(d=> d.Pres is null)){Snackbar.Add("Elija el producto de cada línea.",Severity.Warning);return;}
+        if(_detalles.Any(d=> d.Cantidad<=0 || d.PrecioUnitario<=0)){Snackbar.Add("Cantidad y precio deben ser mayores que cero.",Severity.Warning);return;}
+        if(_detalles.Select(d=>d.Pres!.IdPresProd).Distinct().Count()!=_detalles.Count){Snackbar.Add("Hay productos repetidos: déjelos en una sola línea.",Severity.Warning);return;}
+        _model.Detalles = _detalles.Count==0 ? null : _detalles.Select(d=> new CreateOrdenDetalleDto{ IdPresProd=d.Pres!.IdPresProd, Cantidad=d.Cantidad, PrecioUnitario=d.PrecioUnitario }).ToList();
+        _submitting=true; _error=null; StateHasChanged();
+        try{
+            await ComprasSvc.CreateOrdenAsync(_model, CancellationToken.None);
+            Snackbar.Add(_detalles.Count==0 ? "Orden creada sin productos." : $"Orden creada con {FormatoCl.Miles(_detalles.Count)} producto(s). Total {FormatoCl.Moneda(_total)}",Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); Snackbar.Add("No fue posible crear la orden.",Severity.Error); }
+        finally{ _submitting=false; StateHasChanged(); }
+    }
+}

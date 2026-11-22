@@ -1,0 +1,66 @@
+@page "/catalogos/marcas"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Catalogos.CatalogosApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService Perms
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject IDialogService Dialogs
+@implements IDisposable
+
+<PageHeader Title="Marcas" Description="Marcas de los productos del tenant." Icon="@Icons.Material.Filled.BrandingWatermark">
+    <Actions>@if(_canCreate){<MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreate" aria-label="Nueva marca">Nueva</MudButton>}</Actions>
+</PageHeader>
+
+@if(!_checked){<LoadingState />}
+else if(!_allowed){<Forbidden />}
+else if(_loading){<LoadingState Message="Cargando marcas..." />}
+else if(_error is not null){<ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Load" />}
+else
+{
+    <MudPaper Class="pa-3 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudGrid Spacing="2">
+            <MudItem xs="10" sm="6"><MudTextField @bind-Value="_search" Label="Buscar..." Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="250" OnDebounceIntervalElapsed="ApplyFilter" Clearable="true" aria-label="Buscar marcas" /></MudItem>
+            <MudItem xs="2" sm="6" Class="d-flex justify-end align-center"><MudTooltip Text="Actualizar"><MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="Load" aria-label="Actualizar" /></MudTooltip><div class="d-none d-sm-block ml-2"><MudSelect T="int" Value="_pageSize" ValueChanged="OnPageSizeChanged" Label="Por página" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="max-width:110px"><MudSelectItem Value="20">20</MudSelectItem><MudSelectItem Value="50">50</MudSelectItem><MudSelectItem Value="100">100</MudSelectItem></MudSelect></div></MudItem>
+        </MudGrid>
+    </MudPaper>
+    @if(_filtered.Count==0){<EmptyState Title="Sin marcas" Description="@(_all.Count==0?"No existen marcas.":"No hay resultados.")" Icon="@Icons.Material.Filled.BrandingWatermark"><Action>@if(_canCreate){<MudButton Color="Color.Primary" OnClick="OpenCreate">Crear marca</MudButton>}</Action></EmptyState>}
+    else{
+        <MudTable Items="@_paged" Dense="true" Hover="true" Elevation="0" Bordered="true" Class="mb-2 inv-tabla-compacta inv-tabla-lista" data-testid="tabla-marcas">
+            <HeaderContent><MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Estado</MudTh><MudTh Style="width:110px">Acciones</MudTh></HeaderContent>
+            <RowTemplate><MudTd DataLabel="Código"><b>@context.Codigo</b></MudTd><MudTd DataLabel="Nombre" Class="inv-celda-titulo">@context.Nombre</MudTd><MudTd DataLabel="Estado"><MudChip T="string" Size="Size.Small" Color="@(context.Activo?Color.Success:Color.Default)">@(context.Activo?"Activo":"Inactivo")</MudChip></MudTd><MudTd DataLabel="Acciones" Class="inv-celda-acciones">@if(_canEdit){<MudTooltip Text="Editar"><MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(()=>OpenEdit(context))" aria-label="Editar marca" /></MudTooltip>}</MudTd></RowTemplate>
+        </MudTable>
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap"><MudText Typo="Typo.caption" Color="Color.Secondary" data-testid="paginacion-texto">Mostrando @FormatoCl.Miles(_start+1)–@FormatoCl.Miles(_end) de @FormatoCl.Miles(_filtered.Count)</MudText><MudPagination Count="@_pageCount" Selected="_page" SelectedChanged="OnPageChanged" Color="Color.Primary" BoundaryCount="1" MiddleCount="1" aria-label="Paginación marcas" /></MudStack>
+    }
+}
+@code{
+    private bool _checked,_allowed,_canCreate,_canEdit; private bool _loading=true; private Inventa.Web.Models.Api.ApiError? _error;
+    private List<Inventa.Web.Models.Catalogos.MarcaDto> _all=[]; private List<Inventa.Web.Models.Catalogos.MarcaDto> _filtered=[]; private List<Inventa.Web.Models.Catalogos.MarcaDto> _paged=[];
+    private string _search=""; private int _page=1,_pageSize=20,_pageCount=1,_start,_end; private CancellationTokenSource? _cts;
+    protected override async Task OnInitializedAsync(){
+        _allowed=await Perms.HasPermissionAsync("INVENTA_CATALOGOS_MARCAS_VER");
+        _canCreate=await Perms.HasPermissionAsync("INVENTA_CATALOGOS_MARCAS_CREAR");
+        _canEdit=await Perms.HasPermissionAsync("INVENTA_CATALOGOS_MARCAS_EDITAR");
+        _checked=true; if(!_allowed) return;
+        TenantCtx.OnTenantChanged+= OnTenantChanged; await Load();
+    }
+    private void OnTenantChanged(int? localId, int? passPlatId){ _ = OnTenantChangedAsync(localId); }
+    private async Task OnTenantChangedAsync(int? localId){ await InvokeAsync(async()=>{ _all.Clear(); _loading=true; StateHasChanged(); await Load(); StateHasChanged();});}
+    private async Task Load(){
+        _cts?.Cancel(); _cts=new();
+        _loading=true;_error=null;StateHasChanged();
+        try{ _all = await Svc.GetMarcasAsync(_cts.Token) ?? []; ApplyFilter();}
+        catch(Inventa.Web.Models.Api.ApiException ex){_error=ex.ToApiError();}
+        catch(OperationCanceledException){}
+        finally{_loading=false;StateHasChanged();}
+    }
+    private void ApplyFilter(){
+        var q=_all.AsEnumerable();
+        if(!string.IsNullOrWhiteSpace(_search)){ var s=_search.Trim(); q=q.Where(m=> m.Codigo.Contains(s,StringComparison.OrdinalIgnoreCase)||m.Nombre.Contains(s,StringComparison.OrdinalIgnoreCase));}
+        _filtered=q.ToList(); _page=1; UpdatePaged();
+    }
+    private void UpdatePaged(){ _pageCount=Math.Max(1,(int)Math.Ceiling(_filtered.Count/(double)_pageSize)); _page=Math.Clamp(_page,1,_pageCount); _start=(_page-1)*_pageSize; _end=Math.Min(_start+_pageSize,_filtered.Count); _paged=_filtered.Skip(_start).Take(_pageSize).ToList(); }
+    private void OnPageChanged(int p){_page=p; UpdatePaged();}
+    private void OnPageSizeChanged(int s){_pageSize=s; UpdatePaged();}
+    private async Task OpenCreate(){ var dlg= await Dialogs.ShowAsync<Inventa.Web.Shared.Catalog.MarcaFormDialog>("Nueva marca"); var r=await dlg.Result; if(r is not null && !r.Canceled) await Load(); }
+    private async Task OpenEdit(Inventa.Web.Models.Catalogos.MarcaDto m){ var pars=new DialogParameters{["Model"]=m}; var dlg= await Dialogs.ShowAsync<Inventa.Web.Shared.Catalog.MarcaFormDialog>("Editar marca",pars); var r=await dlg.Result; if(r is not null && !r.Canceled) await Load(); }
+    public void Dispose(){ TenantCtx.OnTenantChanged-=OnTenantChanged; _cts?.Cancel(); _cts?.Dispose(); }
+}

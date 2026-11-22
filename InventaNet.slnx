@@ -1,0 +1,59 @@
+<Solution>
+  <Folder Name="/Framework/">
+    <Project Path="../CBP/CBP.Infraestructure/CBP.Excel/CBP.Excel.csproj" />
+    <Project Path="../CBP/CBP.Infraestructure/CBP.Excel.Tests/CBP.Excel.Tests.csproj" />
+    <Project Path="../CBP/CBP.Infraestructure/CBP.Excel.ClosedXML/CBP.Excel.ClosedXML.csproj" />
+  </Folder>
+  <Folder Name="/Framework/Core/">
+    <Project Path="../CBP/CBP.Core/CBP.Events/CBP.Events.csproj" />
+    <Project Path="../CBP/CBP.Core/CBP/CBP.csproj" />
+    <Project Path="../CBP/CBP.Core/CBP.Results/CBP.Results.csproj" />
+  </Folder>
+  <Folder Name="/Framework/Data/">
+    <Project Path="../CBP/CBP.Data/CBP.Data.Abstractions/CBP.Data.Abstractions.csproj" />
+    <Project Path="../CBP/CBP.Data/CBP.Data.Asynchronous/CBP.Data.Asynchronous.csproj" />
+    <Project Path="../CBP/CBP.Data/CBP.Data.Specifications/CBP.Data.Specifications.csproj" />
+    <Project Path="../CBP/CBP.Data/CBP.Data.Synchronous/CBP.Data.Synchronous.csproj" />
+    <Project Path="../CBP/CBP.Data/CBP.Data.Utilities/CBP.Data.Utilities.csproj" />
+  </Folder>
+  <Folder Name="/Framework/Infraestructure/">
+    <Project Path="../CBP/CBP.Infraestructure/CBP.Emails/CBP.Emails.csproj" />
+    <Project Path="../CBP/CBP.Infraestructure/CBP.Logging/CBP.Logging.csproj" />
+    <Project Path="../CBP/CBP.Infraestructure/CBP.Security/CBP.Security.Cryptography/CBP.Security.Cryptography.csproj" />
+    <Project Path="../CBP/CBP.Infraestructure/CBP.MultiTenant/CBP.MultiTenant.csproj" />
+    <Project Path="../CBP/CBP.Infraestructure/CBP.Outbox/CBP.Outbox.csproj" />
+    <Project Path="../CBP/CBP.Infraestructure/CBP.Storage/CBP.Storage/CBP.Storage.csproj" />
+    <Project Path="../CBP/CBP.Infraestructure/CBP.Storage/CBP.Storage.Local/CBP.Storage.Local.csproj" />
+    <Project Path="../CBP/CBP.Infraestructure/CBP.Storage/CBP.Storage.S3/CBP.Storage.S3.csproj" />
+  </Folder>
+  <Folder Name="/Framework/UI/">
+    <Project Path="../CBP/UI/Web/CBP.Blazor/CBP.Blazor.csproj" />
+    <Project Path="../CBP/UI/Web/CBP.Blazor.Tests/CBP.Blazor.Tests.csproj" />
+    <Project Path="../CBP/UI/Web/CBP.Blazor.Mud/CBP.Blazor.Mud.csproj" />
+  </Folder>
+  <Folder Name="/Src/Data/">
+    <Project Path="Inventa.Data.Async/Inventa.Data.Async.csproj" Id="b3c9e133-5966-4253-a6d7-a84a53c5c2b8" />
+    <Project Path="Inventa.Data/Inventa.Data.csproj" Id="1669e133-5966-4253-a6d7-a84a53c5c1b8" />
+  </Folder>
+  <Folder Name="/Src/Services/">
+    <Project Path="Inventa.Application.Async/Inventa.Application.Async.csproj" Id="c3c9e133-5966-4253-a6d7-a84a53c5c2b8" />
+    <Project Path="Inventa.Application/Inventa.Application.csproj" />
+  </Folder>
+  <Folder Name="/Src/Web/">
+    <Project Path="Inventa.Web/Inventa.Web.csproj" Id="e3c9e133-5966-4253-a6d7-a84a53c5c2b8" />
+    <Project Path="Inventa.WebAPI/Inventa.WebAPI.csproj" Id="d3c9e133-5966-4253-a6d7-a84a53c5c2b8" />
+    <Project Path="Inventa.Store/Inventa.Store.csproj" Id="f3c9e133-5966-4253-a6d7-a84a53c5c2b8" />
+  </Folder>
+  <Folder Name="/Src/">
+    <Project Path="Inventa.Domain/Inventa.Domain.csproj" Id="e2d9e471-7c77-4718-b712-91aabbfdae9f" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Inventa.Application.Tests/Inventa.Application.Tests.csproj" />
+    <Project Path="Inventa.Data.Tests/Inventa.Data.Tests.csproj" />
+    <Project Path="Inventa.WebAPI.Tests/Inventa.WebAPI.Tests.csproj" />
+    <Project Path="Inventa.Store.Tests/Inventa.Store.Tests.csproj" />
+    <Project Path="Inventa.Web.Tests/Inventa.Web.Tests.csproj" />
+  </Folder>
+</Solution>
+
+

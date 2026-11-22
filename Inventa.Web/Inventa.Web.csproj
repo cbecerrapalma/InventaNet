@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Inventa.Web</RootNamespace>
+    <!-- S93.2: ICU completo para applicationCulture es-CL en wwwroot/index.html. -->
+    <BlazorWebAssemblyLoadAllGlobalizationData>true</BlazorWebAssemblyLoadAllGlobalizationData>
+    <!-- S95: aplicación del catálogo de acceso dinámico (CBP.Acceso.Generador). -->
+    <AccesoApp>INVENTA</AccesoApp>
+    <!-- S100 D4b: el menú lo administra PassPlat; el catálogo no lee Layout/NavMenu.razor. -->
+    <AccesoMenuDinamico>true</AccesoMenuDinamico>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" />
+    <PackageReference Include="MudBlazor" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="D:\CODIGOS\CBP\UI\Web\CBP.Blazor\CBP.Blazor.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\UI\Web\CBP.Blazor.Mud\CBP.Blazor.Mud.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Acceso.Generador\CBP.Acceso.Generador.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Core\CBP\CBP.csproj" />
+  </ItemGroup>
+
+  <!-- S95: propiedades visibles para el generador de acceso (como ProjectReference el build/*.props no se importa solo). -->
+  <Import Project="D:\CODIGOS\CBP\CBP.Acceso.Generador\build\CBP.Acceso.Generador.props" />
+
+</Project>

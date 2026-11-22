@@ -1,0 +1,28 @@
+@using Inventa.Web.Models.Catalogos
+@inject Inventa.Web.Services.Catalogos.CatalogosApiService Svc
+@inject ISnackbar Snackbar
+<MudDialog>
+    <DialogContent>
+        <MudTextField @bind-Value="_model.Codigo" Label="Código" Variant="Variant.Outlined" Required="true" MaxLength="20" Immediate="true" aria-label="Código marca" />
+        <MudTextField @bind-Value="_model.Nombre" Label="Nombre" Variant="Variant.Outlined" Required="true" MaxLength="80" Immediate="true" Class="mt-3" aria-label="Nombre marca" />
+        @if(_error is not null){<MudAlert Severity="Severity.Error" Class="mt-2">@_error.Detail<br/><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText></MudAlert>}
+    </DialogContent>
+    <DialogActions><MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="_submitting" aria-label="Guardar marca">@(_submitting?"Guardando...":"Guardar")</MudButton></DialogActions>
+</MudDialog>
+@code{
+    [CascadingParameter] IMudDialogInstance MudDialog{get;set;}=default!;
+    [Parameter] public MarcaDto? Model{get;set;}
+    private CreateMarcaDto _model=new(); private bool _submitting; private Inventa.Web.Models.Api.ApiError? _error;
+    protected override void OnInitialized(){ if(Model is not null){ _model.Codigo=Model.Codigo; _model.Nombre=Model.Nombre; } }
+    private void Cancel()=> MudDialog.Cancel();
+    private async Task Save(){
+        if(string.IsNullOrWhiteSpace(_model.Codigo)||string.IsNullOrWhiteSpace(_model.Nombre)){Snackbar.Add("Complete código y nombre",Severity.Warning);return;}
+        _submitting=true; StateHasChanged();
+        try{
+            if(Model is null){ await Svc.CreateMarcaAsync(_model,CancellationToken.None); Snackbar.Add("Marca creada.",Severity.Success); }
+            else { await Svc.UpdateMarcaAsync(Model.IdMarca,_model,CancellationToken.None); Snackbar.Add("Marca actualizada.",Severity.Success); }
+            MudDialog.Close(DialogResult.Ok(true));
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); Snackbar.Add($"No fue posible guardar. Código de seguimiento: {_error.CorrelationId}",Severity.Error); }
+        finally{_submitting=false; StateHasChanged();}
+    }
+}

@@ -1,0 +1,108 @@
+@page "/importaciones"
+@using Inventa.Web.Models.Api
+@using Inventa.Web.Models.Importacion
+@attribute [Authorize]
+@inject Inventa.Web.Services.Importacion.ImportacionApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageHeader Title="Importar productos" Description="Historial de importaciones de productos desde Excel." Icon="@Icons.Material.Filled.CloudUpload">
+    <Actions>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => Nav.NavigateTo("/importaciones/nueva"))" aria-label="Nueva importación" data-testid="btn-nueva-importacion">Nueva importación</MudButton>
+    </Actions>
+</PageHeader>
+
+@if (!_checked)
+{
+    <LoadingState />
+}
+else if (!_allowed)
+{
+    <Forbidden />
+}
+else if (_loading)
+{
+    <LoadingState Message="Cargando importaciones..." />
+}
+else if (_error is not null)
+{
+    <ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Reload" />
+}
+else if (_items.Count == 0)
+{
+    <EmptyState Title="Sin importaciones" Description="Todavía no has importado ningún archivo." Icon="@Icons.Material.Filled.CloudUpload">
+        <Action>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="@(() => Nav.NavigateTo("/importaciones/nueva"))">Importar productos</MudButton>
+        </Action>
+    </EmptyState>
+}
+else
+{
+    <MudTable Items="@_items" Dense="true" Hover="true" Striped="true" Elevation="0" Bordered="true" Breakpoint="Breakpoint.Sm" Class="inv-tabla-compacta inv-tabla-lista" data-testid="tabla-importaciones">
+        <HeaderContent>
+            <MudTh>Lote</MudTh>
+            <MudTh>Archivo</MudTh>
+            <MudTh>Estado</MudTh>
+            <MudTh>Filas</MudTh>
+            <MudTh>Errores</MudTh>
+            <MudTh>Advertencias</MudTh>
+            <MudTh>Modificadas</MudTh>
+            <MudTh>Creado</MudTh>
+            <MudTh>Aplicado</MudTh>
+            <MudTh Style="width:80px">Acciones</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Lote"><MudLink Href="@($"/importaciones/{context.Id}")" aria-label="@($"Ver lote {context.Id}")">#@context.Id</MudLink></MudTd>
+            <MudTd DataLabel="Archivo" Class="inv-celda-titulo">@context.NombreArchivo</MudTd>
+            <MudTd DataLabel="Estado" Class="inv-celda-acciones"><MudChip T="string" Size="Size.Small" Color="@EstadoLoteUi.Color(context.Estado)">@EstadoLoteUi.Texto(context.Estado)</MudChip></MudTd>
+            <MudTd DataLabel="Filas">@FormatoCl.Miles(context.Filas)</MudTd>
+            <MudTd DataLabel="Errores"><MudText Typo="Typo.body2" Style="@(context.Errores > 0 ? "color:var(--mud-palette-error)" : "")">@FormatoCl.Miles(context.Errores)</MudText></MudTd>
+            <MudTd DataLabel="Advertencias">@FormatoCl.Miles(context.Advertencias)</MudTd>
+            <MudTd DataLabel="Modificadas" HideSmall="true">@(context.Modificados is { } mod ? FormatoCl.Miles(mod) : "—")</MudTd>
+            <MudTd DataLabel="Creado">@FormatoCl.FechaHora(context.FecCrea.ToLocalTime())</MudTd>
+            <MudTd DataLabel="Aplicado" HideSmall="true">@FormatoCl.FechaHora(context.FecAplicada?.ToLocalTime())</MudTd>
+            <MudTd DataLabel="Acciones" HideSmall="true"><MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" OnClick="@(() => Nav.NavigateTo($"/importaciones/{context.Id}"))" aria-label="Ver lote" data-testid="@($"ver-lote-{context.Id}")" /></MudTd>
+        </RowTemplate>
+    </MudTable>
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-2">
+        <MudText Typo="Typo.caption" Color="Color.Secondary" data-testid="paginacion-texto">Mostrando @FormatoCl.Miles((_page - 1) * _pageSize + 1)–@FormatoCl.Miles((_page - 1) * _pageSize + _items.Count) de @FormatoCl.Miles(_total)</MudText>
+        <MudPagination Count="@TotalPaginas" Selected="_page" SelectedChanged="OnPageChanged" Color="Color.Primary" BoundaryCount="1" MiddleCount="1" aria-label="Paginación importaciones" />
+    </MudStack>
+}
+
+@code {
+    private bool _checked;
+    private bool _allowed;
+    private bool _loading = true;
+    private ApiError? _error;
+    private List<LoteItemDto> _items = [];
+    private int _page = 1;
+    private int _pageSize = 20;
+    private int _total;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allowed = await PermsService.HasPermissionAsync("INVENTA_IMPORTACIONES_PRINCIPAL_VER") && await PermsService.HasPermissionAsync("INVENTA_IMPORTACIONES_PRINCIPAL_CREAR");
+        _checked = true;
+        if (_allowed) await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            var r = await Svc.ListarAsync(_page, _pageSize, CancellationToken.None);
+            _items = r?.Items ?? [];
+            _total = r?.Total ?? 0;
+        }
+        catch (ApiException ex) { _error = ex.ToApiError(); }
+        catch (HttpRequestException) { _error = new ApiError { Title = "Sin conexión", Detail = "No se pudo contactar al servidor. Intenta nuevamente.", StatusCode = 0 }; }
+        finally { _loading = false; }
+    }
+
+    private async Task Reload() => await LoadAsync();
+    private int TotalPaginas => Math.Max(1, (int)Math.Ceiling(_total / (double)_pageSize));
+    private async Task OnPageChanged(int p) { _page = p; await LoadAsync(); }
+}

@@ -1,0 +1,185 @@
+@page "/productos/{Id:long}"
+@inject CatalogApiService Api
+@inject NavigationManager Nav
+@inject StorefrontState SfState
+
+<PageTitle>@(_prod?.Nombre ?? "Producto") | @_storeName</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-6">
+    <HeadContent>
+        @if (!string.IsNullOrWhiteSpace(_profile?.DescripcionCorta))
+        {
+            <meta name="description" content="@_profile.DescripcionCorta" />
+        }
+    </HeadContent>
+    <MudBreadcrumbs Items="_crumbs" Class="mb-2" data-testid="store-breadcrumb" />
+    <MudButton StartIcon="@Icons.Material.Filled.ArrowBack" Variant="Variant.Text" OnClick="@(() => Nav.NavigateTo("/"))" Class="mb-4" data-testid="detail-back">Volver al catálogo</MudButton>
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" data-testid="detail-loading" />
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="420px" Class="mt-4" data-testid="detail-skeleton" />
+    }
+    else if (_error != null)
+    {
+        <MudAlert Severity="Severity.Error" data-testid="detail-error">@_error</MudAlert>
+    }
+    else if (_prod == null)
+    {
+        <MudAlert Severity="Severity.Warning" data-testid="detail-notfound">Producto no encontrado.</MudAlert>
+    }
+    else
+    {
+        <MudGrid Spacing="4">
+            <MudItem xs="12" md="6">
+                @* S57.5 P5.1 gallery: principal + thumbnails from ProductoImagen (no new backend); stable aspect, lazy, correct alt, controlled fallback. *@
+                @if (_gallery.Count > 0)
+                {
+                    <MudPaper Elevation="0" Class="store-detail__media" data-testid="detail-image-wrapper">
+                        <img src="@GetImageUrl(_gallery[_selImg])" alt="@(!string.IsNullOrWhiteSpace(_prod.Nombre) ? _prod.Nombre : "Imagen de producto")" class="store-detail__img" loading="lazy" data-testid="detail-image" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+                        <div class="store-detail__fallback" data-testid="detail-image-fallback"><MudIcon Icon="@Icons.Material.Filled.BrokenImage" Style="font-size:64px;opacity:.2;" /></div>
+                    </MudPaper>
+                    @if (_gallery.Count > 1)
+                    {
+                        <div class="store-detail__thumbs" data-testid="detail-thumbnails">
+                            @for (int i = 0; i < _gallery.Count; i++)
+                            {
+                                var idx = i;
+                                <button type="button" class="store-detail__thumb" aria-pressed="@(idx == _selImg ? "true" : "false")" aria-label="@($"Ver imagen {idx + 1} de {_prod.Nombre}")" @onclick="@(() => _selImg = idx)" data-testid="detail-thumb">
+                                    <img src="@GetImageUrl(_gallery[idx])" alt="" loading="lazy" onerror="this.style.display='none'" />
+                                </button>
+                            }
+                        </div>
+                    }
+                }
+                else
+                {
+                    <MudPaper Elevation="0" Class="store-detail__media" Style="background:var(--mud-palette-background);" data-testid="detail-image-placeholder">
+                        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                            <MudIcon Icon="@Icons.Material.Filled.ImageNotSupported" Style="font-size:64px;opacity:.2;" />
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Imagen no disponible</MudText>
+                        </MudStack>
+                    </MudPaper>
+                }
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Style="letter-spacing:.08em;text-transform:uppercase;">@_prod.CategoriaNombre</MudText>
+                @if (_prod.MarcaNombre != null)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary"> - @_prod.MarcaNombre</MudText>
+                }
+                <MudText Typo="Typo.h4" Style="font-weight:600;" Class="mb-1" HtmlTag="h1">@_prod.Nombre</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">Código: @_prod.Codigo</MudText>
+                @if (_prod.Variantes.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Sin variantes registradas.</MudAlert>
+                }
+                else
+                {
+                    @foreach (var v in _prod.Variantes)
+                    {
+                        <MudPaper Elevation="0" Style="border:1px solid var(--mud-palette-lines-default);" Class="pa-3 mb-3">
+                            <MudText Typo="Typo.subtitle2" Style="font-weight:600;">@v.Nombre <MudText Typo="Typo.caption" Color="Color.Secondary">(@v.Codigo)</MudText></MudText>
+                            @foreach (var pr in v.Presentaciones)
+                            {
+                                @* S110 D3: con una sola presentación (ADR-PROD-001: una por variante) no se repite el nombre del producto. *@
+                                @if (v.Presentaciones.Count > 1)
+                                {
+                                    <MudDivider Class="my-2" />
+                                    <MudText Typo="Typo.body2" Style="font-weight:500;">@pr.Descrip - @pr.Unidad</MudText>
+                                }
+                                @* S64: precio final del servidor (R3/R4); lista legacy solo como fallback. *@
+                                @if (pr.PrecioFinal.HasValue)
+                                {
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-1" data-testid="detail-final-price">
+                                        <MudText Typo="Typo.h5" Style="font-weight:700;" HtmlTag="span">@FormatoCl.Moneda(pr.PrecioFinal.Value, SfState.Moneda)</MudText>
+                                        @* S77 R4': tachado = referencia congelada de la oferta ganadora (primera). *@
+                                        @{
+                                            var ganadora = pr.Ofertas?.FirstOrDefault();
+                                        }
+                                        @if (ganadora?.PrecioReferenciaValor.HasValue == true && ganadora.PrecioReferenciaValor.Value > pr.PrecioFinal.Value)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary" Style="text-decoration:line-through;" data-testid="detail-reference-price">@FormatoCl.Moneda(ganadora.PrecioReferenciaValor.Value, SfState.Moneda)</MudText>
+                                        }
+                                        @if (pr.PctDescuento.HasValue)
+                                        {
+                                            <MudChip T="string" Color="Color.Error" Size="Size.Small" Variant="Variant.Filled" data-testid="detail-discount">-@FormatoCl.Porcentaje(pr.PctDescuento)</MudChip>
+                                        }
+                                    </MudStack>
+                                }
+                                else if (pr.Precios.Count == 0)
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Sin precios vigentes.</MudText>
+                                }
+                                else
+                                {
+                                    <MudList T="string" Dense="true" Class="mt-1">
+                                        @foreach (var p in pr.Precios)
+                                        {
+                                            <MudListItem>
+                                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                                    <MudText Typo="Typo.caption">Vigente desde @FormatoCl.Fecha(p.FecVig)</MudText>
+                                                    <MudText Typo="Typo.body2" Class="price-publico">@FormatoCl.Moneda(p.Valor, SfState.Moneda)</MudText>
+                                                </MudStack>
+                                            </MudListItem>
+                                        }
+                                    </MudList>
+                                }
+                            }
+                        </MudPaper>
+                    }
+                }
+                @* U8: WhatsApp CTA if configured *@
+                @if (!string.IsNullOrWhiteSpace(_whatsappUrl))
+                {
+                    <a href="@_whatsappUrl" target="_blank" rel="noopener noreferrer" class="store-detail__whatsapp" data-testid="detail-whatsapp">
+                        <MudIcon Icon="@Icons.Custom.Brands.WhatsApp" Size="Size.Small" Class="me-1" aria-hidden="true" />
+                        Consultar por WhatsApp
+                    </a>
+                }
+                @* S79: link a formulario de contacto con producto preseleccionado *@
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Href="@($"/contacto?producto={_prod.IdProd}")" Class="mt-2" data-testid="detail-contact">
+                    <MudIcon Icon="@Icons.Material.Filled.Mail" Size="Size.Small" Class="me-1" aria-hidden="true" />
+                    Consultar por este producto
+                </MudButton>
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-4">Catálogo solo consulta — sin carrito ni compra online.</MudAlert>
+            </MudItem>
+        </MudGrid>
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public long Id { get; set; }
+    PublicProductDetailDto? _prod;
+    PublicStorefrontDto? _profile;
+    bool _loading = true;
+    string? _error;
+    List<string> _gallery = new();
+    int _selImg;
+    string _storeName = "Inventa";
+    string? _whatsappUrl;
+    private List<BreadcrumbItem> _crumbs = new() { new("Inicio", href: "/"), new("Catálogo", href: "/"), new("Producto", href: null, disabled: true) };
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true; _error = null; _selImg = 0;
+        try
+        {
+            var profileTask = SfState.GetAsync();
+            _prod = await Api.GetProductAsync(Id);
+            _profile = await profileTask;
+            if (_prod == null) _error = "Producto no encontrado (404)";
+            else
+            {
+                _gallery = (_prod.Imagenes.Count > 0 ? _prod.Imagenes.Select(i => i.Url) : new[] { _prod.ImagenUrl }.OfType<string>()).Where(u => !string.IsNullOrWhiteSpace(u)).ToList();
+                _storeName = SfState.DisplayName(_profile);
+                // S110 D3: migas con la categoría (catálogo filtrado) y el nombre del producto.
+                _crumbs = new() { new("Inicio", href: "/"), new(_prod.CategoriaNombre, href: $"/?cat={_prod.IdCategoria}"), new(_prod.Nombre, href: null, disabled: true) };
+                // Build WhatsApp URL for detail CTA (U8)
+                _whatsappUrl = StoreLinks.WhatsAppUrl(_profile?.Contacto?.WhatsApp, $"Hola, vi el producto \"{_prod.Nombre}\" en su catálogo y quisiera hacer una consulta.");
+            }
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound) { _error = "Producto no encontrado."; }
+        catch (Exception ex) { _error = $"Error: {ex.Message}"; }
+        finally { _loading = false; }
+    }
+    string? GetImageUrl(string? url) => SfState.ResolveAssetUrl(url);
+}

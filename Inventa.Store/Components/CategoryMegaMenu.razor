@@ -1,0 +1,74 @@
+@* S71 mega-menú escritorio (≥960px; oculto en móvil por CSS): presentacional.
+   Contrato: Raices (orden del servidor), CategoriaActiva (raíz o hija => resalta su raíz),
+   Version (MainLayout lo incrementa en cada LocationChanged => cierra el panel). *@
+@using Inventa.Store.Models
+
+<nav class="store-mega" aria-label="Categorías" data-testid="store-mega-nav"
+     @onmouseleave="Cerrar" @onkeydown="OnKeyDown">
+    <div class="store-mega__bar">
+        @foreach (var r in Raices)
+        {
+            var activa = EsActiva(r);
+            var abierta = _abierta == r.Id;
+            var testid = r.Hijos.Count == 0 ? "store-mega-link" : "store-mega-button";
+            @if (r.Hijos.Count == 0)
+            {
+                <a href="@($"/?cat={r.Id}")" class="@("store-mega__item" + (activa ? " store-mega__item--active" : ""))" aria-current="@(activa ? "page" : null)" data-testid="@testid">@r.Nombre</a>
+            }
+            else
+            {
+                // S71 un solo <button> estable: al alternar no se reemplaza el nodo y el
+                // foco se conserva en el botón (Escape burbujea al nav y cierra).
+                var panelId = $"store-mega-panel-{r.Id}";
+                <button type="button" class="@("store-mega__item store-mega__button" + (activa ? " store-mega__item--active" : ""))" aria-expanded="@(abierta ? "true" : "false")" aria-controls="@panelId" @onclick="@(() => Toggle(r.Id))" @onmouseenter="@(() => Abrir(r.Id))" data-testid="@testid">@r.Nombre</button>
+            }
+        }
+    </div>
+    @if (_abierta is not null && RaizAbierta is not null)
+    {
+        <div class="store-mega__panel" id="@($"store-mega-panel-{RaizAbierta.Id}")" role="region" aria-label="@RaizAbierta.Nombre" data-testid="store-mega-panel">
+            <div class="store-mega__grid">
+                <a href="@($"/?cat={RaizAbierta.Id}")" class="store-mega__all" data-testid="store-mega-all">Ver todo @RaizAbierta.Nombre</a>
+                 @foreach (var h in RaizAbierta.Hijos)
+                 {
+                     <a href="@($"/?cat={h.Id}")" class="store-mega__child" aria-current="@(CategoriaActiva == h.Id ? "page" : null)" data-testid="store-mega-child">@h.Nombre@(h.Cantidad.HasValue ? $" ({FormatoCl.Miles(h.Cantidad.Value)})" : "")</a>
+                 }
+            </div>
+        </div>
+    }
+</nav>
+
+@code {
+    [Parameter] public IReadOnlyList<CategoryNode> Raices { get; set; } = [];
+    [Parameter] public long? CategoriaActiva { get; set; }
+    [Parameter] public int Version { get; set; }
+
+    long? _abierta;
+    int _versionVista;
+    CategoryNode? RaizAbierta => Raices.FirstOrDefault(r => r.Id == _abierta);
+
+    protected override void OnParametersSet()
+    {
+        // Cierre por navegación: cualquier cambio de Version cierra el panel.
+        if (Version != _versionVista) { _versionVista = Version; _abierta = null; }
+    }
+
+    bool EsActiva(CategoryNode r) =>
+        CategoriaActiva == r.Id || r.Hijos.Any(h => h.Id == CategoriaActiva);
+
+    void Abrir(long id) { _abierta = id; }
+    void Toggle(long id) { _abierta = _abierta == id ? null : id; }
+    void Cerrar() { _abierta = null; }
+
+    async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        // El foco sigue en el botón estable de la raíz: cerrar basta para
+        // "devolver" el foco (nunca lo perdió). Sin JS, sin @ref.
+        if (e.Key == "Escape" && _abierta is not null)
+        {
+            _abierta = null;
+            StateHasChanged();
+        }
+        await Task.CompletedTask;
+    }
+}

@@ -1,0 +1,99 @@
+@page "/configuracion"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Configuracion.ConfiguracionApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject ISnackbar Snackbar
+
+<PageHeader Title="Configuración" Description="Configuración global de Inventa. Parámetros operativos generales." Icon="@Icons.Material.Filled.Settings" />
+
+@if (!_checked){<LoadingState />}
+else if (!_allowed){<Forbidden />}
+else if (_loading){<LoadingState Message="Cargando configuración global..." />}
+else if (_error is not null){<ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="LoadAsync" />}
+else if (_dto is null){<EmptyState Title="Sin configuración" Description="Configuración global no encontrada (Id=1)." Icon="@Icons.Material.Filled.Settings" />}
+else
+{
+    <MudPaper Class="pa-4 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
+            <MudChip T="string" Color="Color.Primary" Size="Size.Small" Icon="@Icons.Material.Filled.Public">GLOBAL</MudChip>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Común a todos los tenants</MudText>
+        </MudStack>
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-3">Conexión de Inventa con PassPlat. Las claves y contraseñas no se guardan aquí.</MudAlert>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="8"><MudTextField @bind-Value="_edit.PassPlatApiBaseUrl" Label="URL de la API de PassPlat" Variant="Variant.Outlined" Required="true" MaxLength="500" Disabled="@(!_canEditar)" aria-label="API Base URL" HelperText="Dirección completa, con https://" /></MudItem>
+            <MudItem xs="12" md="4"><MudNumericField Culture="@FormatoCl.Cultura" @bind-Value="_edit.PassPlatTimeoutMs" Label="Tiempo de espera (ms)" Variant="Variant.Outlined" Min="1000" Max="120000" Disabled="@(!_canEditar)" aria-label="Timeout" HelperText="Entre 1.000 y 120.000 ms" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_edit.PassPlatAmbiente" Label="Ambiente" Variant="Variant.Outlined" Required="true" MaxLength="50" Disabled="@(!_canEditar)" aria-label="Ambiente" HelperText="Production / Staging / Development" /></MudItem>
+            <MudItem xs="12" md="6"><MudSwitch @bind-Value="_edit.Activo" Label="@(_edit.Activo? "Activo":"Inactivo")" Color="Color.Primary" Disabled="@(!_canEditar)" aria-label="Activo" /></MudItem>
+            <MudItem xs="6" md="6" data-testid="cfg-modificado"><MudText Typo="Typo.caption" Color="Color.Secondary">Última modificación</MudText><MudText Typo="Typo.body2">@FormatoCl.FechaHora(_dto.FecMod)</MudText></MudItem>
+            <MudItem xs="6" md="6"><MudText Typo="Typo.caption" Color="Color.Secondary">Última sincronización</MudText><MudText Typo="Typo.body2">@FormatoCl.FechaHora(_dto.FechaSync)</MudText></MudItem>
+        </MudGrid>
+        @if (!_canEditar){<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-3">Solo lectura: tu usuario no tiene permiso para editar esta configuración.</MudAlert>}
+        else
+        {
+            <MudStack Row="true" Spacing="2" Class="mt-4">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="_submitting || !_isDirty" aria-label="Guardar">@(_submitting? "Guardando...":"Guardar cambios")</MudButton>
+                <MudButton Variant="Variant.Outlined" OnClick="Reset" Disabled="_submitting || !_isDirty" aria-label="Cancelar">Cancelar</MudButton>
+                <MudTooltip Text="Actualizar"><MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="_submitting" aria-label="Actualizar" /></MudTooltip>
+            </MudStack>
+
+        }
+        @if (_saveError is not null){<MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mt-3">@_saveError.Detail<br/><MudText Typo="Typo.caption">Código de seguimiento: @_saveError.CorrelationId</MudText></MudAlert>}
+    </MudPaper>
+}
+
+@code{
+    private bool _checked,_allowed,_canEditar; private bool _loading=true; private bool _submitting; private bool _isDirty;
+    private Inventa.Web.Models.Api.ApiError? _error; private Inventa.Web.Models.Api.ApiError? _saveError;
+    private Inventa.Web.Models.Configuracion.ConfiguracionDto? _dto;
+    private Inventa.Web.Models.Configuracion.UpdateConfiguracionDto _edit = new();
+    private CancellationTokenSource? _cts;
+    protected override async Task OnInitializedAsync(){
+        _allowed=await PermsService.HasPermissionAsync("INVENTA_CONFIGURACION_PRINCIPAL_VER");
+        _canEditar=await PermsService.HasPermissionAsync("INVENTA_CONFIGURACION_PRINCIPAL_EDITAR");
+        _checked=true; if(!_allowed) return;
+        await LoadAsync();
+        // track dirty via property change detection on edit fields: use simple comparison on each change via handlers? For text fields immediate bind, compute dirty in getter.
+    }
+    private async Task LoadAsync(){
+        _cts?.Cancel(); _cts=new CancellationTokenSource(); var ct=_cts.Token;
+        _loading=true; _error=null; _saveError=null; StateHasChanged();
+        try{
+            _dto = await Svc.GetGlobalAsync(ct);
+            if(_dto is not null){
+                _edit = new(){ PassPlatApiBaseUrl=_dto.PassPlatApiBaseUrl, PassPlatTimeoutMs=_dto.PassPlatTimeoutMs, PassPlatAmbiente=_dto.PassPlatAmbiente, Activo=_dto.Activo };
+                _isDirty=false;
+            }
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); if(ex.StatusCode==401) Snackbar.Add("Sesión expirada",Severity.Warning); }
+        catch(OperationCanceledException){} catch(Exception ex){ _error=new(){StatusCode=0, Title="Error", Detail=ex.Message};}
+        finally{ _loading=false; StateHasChanged(); }
+        // subscribe dirty check after load: bind updates don't auto compute, so compute on each render via comparison method
+    }
+    private bool ComputeDirty(){
+        if(_dto is null) return false;
+        return _edit.PassPlatApiBaseUrl != _dto.PassPlatApiBaseUrl || _edit.PassPlatTimeoutMs != _dto.PassPlatTimeoutMs || _edit.PassPlatAmbiente != _dto.PassPlatAmbiente || _edit.Activo != _dto.Activo;
+    }
+    protected override void OnAfterRender(bool firstRender){
+        var d=ComputeDirty();
+        if(d!=_isDirty){ _isDirty=d; StateHasChanged(); }
+    }
+    private void Reset(){
+        if(_dto is null) return;
+        _edit = new(){ PassPlatApiBaseUrl=_dto.PassPlatApiBaseUrl, PassPlatTimeoutMs=_dto.PassPlatTimeoutMs, PassPlatAmbiente=_dto.PassPlatAmbiente, Activo=_dto.Activo };
+        _saveError=null; _isDirty=false;
+    }
+    private async Task Save(){
+        if(!_canEditar){ Snackbar.Add("Sin permiso INVENTA_CONFIGURACION_PRINCIPAL_EDITAR",Severity.Warning); return; }
+        if(!ComputeDirty()){ Snackbar.Add("Sin cambios.",Severity.Info); return; }
+        if(string.IsNullOrWhiteSpace(_edit.PassPlatApiBaseUrl)){ Snackbar.Add("API Base URL requerido.",Severity.Warning); return; }
+        if(!Uri.TryCreate(_edit.PassPlatApiBaseUrl, UriKind.Absolute, out _)){ Snackbar.Add("URL no válida.",Severity.Warning); return; }
+        if(_edit.PassPlatTimeoutMs<1000 || _edit.PassPlatTimeoutMs>120000){ Snackbar.Add("Timeout 1000–120000.",Severity.Warning); return; }
+        if(string.IsNullOrWhiteSpace(_edit.PassPlatAmbiente)){ Snackbar.Add("Ambiente requerido.",Severity.Warning); return; }
+        _submitting=true; _saveError=null; StateHasChanged();
+        try{
+            var res=await Svc.UpdateGlobalAsync(_edit, _cts?.Token ?? CancellationToken.None);
+            if(res is not null){ _dto=res; _edit=new(){ PassPlatApiBaseUrl=res.PassPlatApiBaseUrl, PassPlatTimeoutMs=res.PassPlatTimeoutMs, PassPlatAmbiente=res.PassPlatAmbiente, Activo=res.Activo }; _isDirty=false; Snackbar.Add("Configuración actualizada.",Severity.Success); }
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _saveError=ex.ToApiError(); Snackbar.Add($"No fue posible guardar. Código de seguimiento: {_saveError.CorrelationId}",Severity.Error); }
+        finally{ _submitting=false; StateHasChanged(); }
+    }
+    public void Dispose(){ _cts?.Cancel(); _cts?.Dispose(); }
+}

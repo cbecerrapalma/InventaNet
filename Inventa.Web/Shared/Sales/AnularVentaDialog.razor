@@ -1,0 +1,34 @@
+@using Inventa.Web.Models.Ventas
+@inject Inventa.Web.Services.Ventas.VentasApiService VentasSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">Solo ventas Completadas (Estado=1) pueden anularse. Acción irreversible.</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Venta #@VentaId</MudText>
+            <MudTextField @bind-Value="_motivo" Label="Motivo anulación" Variant="Variant.Outlined" Required="true" MaxLength="500" Lines="3" aria-label="Motivo anulación" HelperText="Requerido" />
+            @if (_error is not null){<MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_error.Detail<br/><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText></MudAlert>}
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="Confirm" Disabled="_submitting" aria-label="Anular venta">@(_submitting?"Anulando...":"Anular")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code{
+    [CascadingParameter] IMudDialogInstance MudDialog{get;set;}=default!;
+    [Parameter] public long VentaId{get;set;}
+    private string _motivo=""; private bool _submitting; private Inventa.Web.Models.Api.ApiError? _error;
+    private void Cancel()=> MudDialog.Cancel();
+    private async Task Confirm(){
+        if(string.IsNullOrWhiteSpace(_motivo)){Snackbar.Add("Motivo requerido.",Severity.Warning);return;}
+        _submitting=true; _error=null; StateHasChanged();
+        try{
+            await VentasSvc.AnularAsync(VentaId, new AnularDto{ Motivo=_motivo.Trim() }, CancellationToken.None);
+            Snackbar.Add("Venta anulada.",Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); Snackbar.Add($"No fue posible anular. Código de seguimiento: {_error.CorrelationId}",Severity.Error); }
+        finally{ _submitting=false; StateHasChanged(); }
+    }
+}

@@ -1,0 +1,6 @@
+<MudStack AlignItems="AlignItems.Center" Spacing="2" Class="pa-8">
+    <MudProgressCircular Indeterminate="true" Size="Size.Large" Color="Color.Primary" />
+    <MudText Typo="Typo.body2" Color="Color.Secondary">@(Message ?? "Cargando...")</MudText>
+    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="12px" Width="60%" Animation="Animation.Wave" />
+</MudStack>
+@code { [Parameter] public string? Message { get; set; } }

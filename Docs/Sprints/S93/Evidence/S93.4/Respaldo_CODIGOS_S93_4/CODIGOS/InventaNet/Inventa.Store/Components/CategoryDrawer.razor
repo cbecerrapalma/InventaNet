@@ -1,0 +1,68 @@
+@* S62.3 menú lateral presentacional: MudDrawer temporal + nav. Cierre: overlay (framework), navegación y Escape con foco dentro. *@
+<MudDrawer Open="@Open" OpenChanged="@OnOpenChanged" Anchor="Anchor.Start" Variant="DrawerVariant.Temporary" Elevation="1" id="store-category-drawer" aria-label="Categorías">
+    <div @onkeydown="OnKeyDown" data-testid="store-category-drawer">
+        <nav aria-label="Categorías">
+            @if (Cargando)
+            {
+                <div class="pa-4" data-testid="store-cats-loading">
+                    @for (var i = 0; i < 5; i++) { <MudSkeleton SkeletonType="SkeletonType.Text" /> }
+                </div>
+            }
+            else if (Error)
+            {
+                <div class="pa-4" data-testid="store-cats-error">
+                    <MudText Typo="Typo.body2">No pudimos cargar las categorías.</MudText>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="@OnRetry" data-testid="store-cats-retry">Reintentar</MudButton>
+                </div>
+            }
+            else if (Categorias is null || Categorias.Count == 0)
+            {
+                <div class="pa-4" data-testid="store-cats-empty">
+                    <MudText Typo="Typo.body2">Aún no hay categorías.</MudText>
+                </div>
+            }
+            else
+            {
+                <MudNavMenu data-testid="store-cats-nav">
+                    <MudNavLink Href="/" data-testid="store-cat-all-link">Todos los productos</MudNavLink>
+                    @foreach (var c in Categorias)
+                    {
+                        @if (c.Hijos.Count == 0)
+                        {
+                            <MudNavLink Href="@($"/?cat={c.Id}")" data-testid="store-cat-link">@c.Nombre@(c.Cantidad.HasValue ? $" ({c.Cantidad})" : "")</MudNavLink>
+                        }
+                        else
+                        {
+                            <MudNavGroup Title="@($"{c.Nombre}{(c.Cantidad.HasValue ? $" ({c.Cantidad})" : "")}")" data-testid="store-cat-group">
+                                <MudNavLink Href="@($"/?cat={c.Id}")" data-testid="store-cat-link">Ver todo @c.Nombre</MudNavLink>
+                                @foreach (var h in c.Hijos)
+                                {
+                                    <MudNavLink Href="@($"/?cat={h.Id}")" data-testid="store-cat-child-link">@h.Nombre@(h.Cantidad.HasValue ? $" ({h.Cantidad})" : "")</MudNavLink>
+                                }
+                            </MudNavGroup>
+                        }
+                    }
+                </MudNavMenu>
+            }
+        </nav>
+    </div>
+</MudDrawer>
+
+@code {
+    // S62.3 parámetros de entrada (MainLayout decide la carga diferida).
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    [Parameter] public IReadOnlyList<CategoryNode> Categorias { get; set; } = [];
+    [Parameter] public bool Cargando { get; set; }
+    [Parameter] public bool Error { get; set; }
+    // S62.3 desviación menor documentada: OnRetry no estaba en la lista del plan, pero el
+    // botón "Reintentar" exige un callback (el componente no inyecta servicios).
+    [Parameter] public EventCallback OnRetry { get; set; }
+
+    Task OnOpenChanged(bool v) => OpenChanged.InvokeAsync(v);
+
+    // S62.3 Escape solo llega aquí con el foco dentro del drawer (sin JS global no hay
+    // otra vía en Blazor puro); el overlay y la navegación cubren el resto.
+    Task OnKeyDown(KeyboardEventArgs e) =>
+        e.Key == "Escape" ? OpenChanged.InvokeAsync(false) : Task.CompletedTask;
+}

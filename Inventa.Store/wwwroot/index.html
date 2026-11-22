@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1D4E89" />
+    <title>Catálogo</title>
+    <base href="/" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <link href="css/app.css" rel="stylesheet" />
+</head>
+<body>
+    <div id="app">Cargando catalogo...</div>
+    <div id="blazor-error-ui">Error no controlado.</div>
+    <script src="_framework/blazor.webassembly.js" autostart="false"></script>
+    <script>
+        // S93.2: ICU completo + cultura es-CL determinista antes del arranque.
+        Blazor.start({ webAssembly: { applicationCulture: 'es-CL' } });
+    </script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+</body>
+</html>

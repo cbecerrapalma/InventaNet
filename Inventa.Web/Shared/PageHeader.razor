@@ -1,0 +1,32 @@
+@using MudBlazor
+@using Microsoft.AspNetCore.Components.Web
+<PageTitle>@(Title + " | InventaNet")</PageTitle>
+@* S112 D2: fila flex (inv-page-header): título y descripción a la izquierda, Volver y acciones a la derecha. *@
+<div class="inv-page-header" data-testid="page-header">
+    <div class="inv-page-header__title">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            @if (!string.IsNullOrWhiteSpace(Icon)) { <MudIcon Icon="@Icon" Size="Size.Medium" Color="Color.Primary" /> }
+            <MudText Typo="Typo.h2" HtmlTag="h1">@Title</MudText>
+        </MudStack>
+        @if (!string.IsNullOrWhiteSpace(Description)) { <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">@Description</MudText> }
+    </div>
+    @if (OnBack.HasDelegate || Actions is not null)
+    {
+        <div class="inv-page-header__actions">
+            @if (OnBack.HasDelegate)
+            {
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="VolverAsync">Volver</MudButton>
+            }
+            @if (Actions is not null) { @Actions }
+        </div>
+    }
+</div>
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private Task VolverAsync() => OnBack.InvokeAsync();
+}

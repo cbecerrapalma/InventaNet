@@ -1,0 +1,149 @@
+@using Inventa.Web.Models.Ventas
+@using Inventa.Web.Models.Productos
+@inject Inventa.Web.Services.Ventas.VentasApiService VentasSvc
+@inject Inventa.Web.Services.Bodegas.BodegasApiService BodegaSvc
+@inject Inventa.Web.Services.Clientes.ClientesApiService ClienteSvc
+@inject Inventa.Web.Services.Catalogos.CatalogosApiService CatalogSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.body2" Color="Color.Secondary">Busque cada producto por código, nombre o código de barras. El stock se valida al registrar.</MudText>
+            @if (_loading){<LoadingState Message="Cargando..." />}
+            else
+            {
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="4">
+                        @if(_bodegas.Count==0){<MudAlert Severity="Severity.Warning">No hay bodegas activas.</MudAlert>}
+                        else{<MudSelect T="int" Value="_dto.IdBodega" ValueChanged="OnBodegaChanged" Label="Bodega" Variant="Variant.Outlined" Required="true" Dense="true" aria-label="Bodega"><MudSelectItem Value="0" Disabled="true">Seleccione</MudSelectItem>@foreach(var b in _bodegas){<MudSelectItem Value="@b.IdBodega">@b.Codigo - @b.Nombre</MudSelectItem>}</MudSelect>}
+                    </MudItem>
+                    <MudItem xs="6" md="4"><MudTextField @bind-Value="_dto.NumVenta" Label="N° venta" Variant="Variant.Outlined" Required="true" MaxLength="30" aria-label="N° venta" HelperText="No se puede repetir" /></MudItem>
+                    <MudItem xs="6" md="4"><MudSelect T="byte" @bind-Value="_dto.TipoDoc" Label="Documento" Variant="Variant.Outlined" Dense="true" aria-label="Documento"><MudSelectItem Value="@((byte)1)">Boleta</MudSelectItem><MudSelectItem Value="@((byte)2)">Factura</MudSelectItem><MudSelectItem Value="@((byte)3)">Nota de venta</MudSelectItem></MudSelect></MudItem>
+                    <MudItem xs="12"><MudSelect T="int?" Value="_dto.IdCliente" ValueChanged="OnClienteChanged" Label="Cliente (opcional)" Variant="Variant.Outlined" Clearable="true" Dense="true" aria-label="Cliente">@foreach(var c in _clientes){<MudSelectItem Value="@((int?)c.IdCliente)">@c.Codigo - @c.Nombre</MudSelectItem>}</MudSelect></MudItem>
+                </MudGrid>
+
+                <MudDivider />
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.subtitle2">Productos (@FormatoCl.Miles(_items.Count))</MudText>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddItem" aria-label="Agregar producto">Agregar</MudButton>
+                </MudStack>
+                @if(_items.Count==0){<MudAlert Severity="Severity.Info">Agregue al menos un producto.</MudAlert>}
+                @foreach(var l in _items)
+                {
+                    <MudPaper Elevation="0" Class="pa-2" Style="border:1px solid var(--mud-palette-lines-default)" data-testid="linea-venta">
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12">
+                                <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1">
+                                    <div class="flex-grow-1" style="min-width:0"><BuscadorPresentacion Value="l.Pres" ValueChanged="@((PresentacionBusquedaDto? v) => OnPresChanged(l, v))" Uso="venta" IdBodega="_dto.IdBodega" /></div>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(()=> RemoveItem(l))" aria-label="Quitar producto" />
+                                </MudStack>
+                            </MudItem>
+                            <MudItem xs="4"><MudNumericField Culture="@FormatoCl.Cultura" T="decimal" Value="l.Cantidad" ValueChanged="@(v => { l.Cantidad = v; Recalcular(); })" Label="Cantidad" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0.0001m" Format="#,0.####" aria-label="Cantidad" data-testid="item-cantidad" /></MudItem>
+                            <MudItem xs="4"><MudNumericField Culture="@FormatoCl.Cultura" T="decimal" Value="l.PrecioUnitario" ReadOnly="true" Label="Precio" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0m" Format="N0" aria-label="Precio" data-testid="item-precio" /></MudItem>
+                            <MudItem xs="4"><MudNumericField Culture="@FormatoCl.Cultura" T="decimal" Value="l.Descuento" ValueChanged="@(v => { l.Descuento = v; Recalcular(); })" Label="Desc." Variant="Variant.Outlined" Margin="Margin.Dense" Min="0m" Format="N0" aria-label="Descuento" data-testid="item-descuento" /></MudItem>
+                            <MudItem xs="12"><MudText Typo="Typo.caption" Color="Color.Secondary" data-testid="linea-venta-resumen">@Resumen(l)</MudText></MudItem>
+                        </MudGrid>
+                    </MudPaper>
+                }
+
+                <MudDivider />
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.subtitle2">Pagos (@FormatoCl.Miles(_pagos.Count))</MudText>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddPago" aria-label="Agregar pago">Agregar</MudButton>
+                </MudStack>
+                @if(_pagos.Count==0){<MudAlert Severity="Severity.Info">Agregue al menos un pago.</MudAlert>}
+                @foreach(var p in _pagos)
+                {
+                    <MudGrid Spacing="2" data-testid="linea-pago">
+                        <MudItem xs="12" sm="4"><MudSelect T="byte" @bind-Value="p.IdMetodoPago" Label="Método" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" aria-label="Método de pago">@foreach(var m in _metodos){<MudSelectItem Value="@((byte)m.IdMetodoPago)">@m.Nombre</MudSelectItem>}</MudSelect></MudItem>
+                        <MudItem xs="5" sm="3"><MudNumericField Culture="@FormatoCl.Cultura" T="decimal" Value="p.Monto" ValueChanged="@(v => { p.Monto = v; _montoAuto = false; })" Label="Monto" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0m" Format="N0" aria-label="Monto pago" data-testid="pago-monto" /></MudItem>
+                        @if(EsEfectivo(p)){<MudItem xs="5" sm="4"><MudNumericField Culture="@FormatoCl.Cultura" T="decimal?" Value="p.Recibido" ValueChanged="@(v => p.Recibido = v)" Label="Recibido" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0m" Format="N0" aria-label="Efectivo recibido" data-testid="pago-recibido" /></MudItem>}
+                        else{<MudItem xs="5" sm="4"><MudTextField @bind-Value="p.Referencia" Label="Referencia" Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Referencia" /></MudItem>}
+                        <MudItem xs="2" sm="1"><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(()=> RemovePago(p))" aria-label="Quitar pago" /></MudItem>
+                        @if(EsEfectivo(p) && TextoVuelto(p) is string vuelto){<MudItem xs="12"><MudText Typo="Typo.caption" Color="@(p.Recibido < p.Monto ? Color.Error : Color.Success)" data-testid="pago-vuelto">@vuelto</MudText></MudItem>}
+                    </MudGrid>
+                }
+                <MudText Typo="Typo.body2" data-testid="venta-totales">Total productos: <b>@FormatoCl.Moneda(_totalItems)</b> · Total pagos: <b>@FormatoCl.Moneda(_totalPagos)</b>@if(Diferencia!=0){<span data-testid="venta-diferencia" style="color:var(--mud-palette-error)"> · @(Diferencia>0 ? "Falta" : "Sobra") <b>@FormatoCl.Moneda(Math.Abs(Diferencia))</b></span>}</MudText>
+            }
+            @if (_error is not null){<MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_error.Detail<br/><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText></MudAlert>}
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="_submitting || _loading" aria-label="Registrar venta">@(_submitting?"Registrando...":"Registrar")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code{
+    [CascadingParameter] IMudDialogInstance MudDialog{get;set;}=default!;
+    // S117 (P19): cada línea elige la presentación con el buscador; el precio sugerido es el precio vigente.
+    private sealed class LineaVenta{ public PresentacionBusquedaDto? Pres{get;set;} public decimal Cantidad{get;set;}=1; public decimal PrecioUnitario{get;set;} public decimal Descuento{get;set;} }
+    private RegistrarVentaDto _dto = new(){ NumVenta=$"V-{DateTime.UtcNow:yyyyMMddHHmmss}", TipoDoc=1 };
+    // S127 (P23): el pago de la pantalla; «Recibido» solo sirve para mostrar el vuelto del efectivo y no viaja a la API.
+    private sealed class LineaPago{ public byte IdMetodoPago{get;set;} public decimal Monto{get;set;} public string? Referencia{get;set;} public decimal? Recibido{get;set;} }
+    private List<LineaVenta> _items=[]; private List<LineaPago> _pagos=[];
+    private List<Inventa.Web.Models.Bodegas.BodegaDto> _bodegas=[]; private List<Inventa.Web.Models.Clientes.ClienteDto> _clientes=[]; private List<Inventa.Web.Models.Catalogos.MetodoPagoDto> _metodos=[];
+    private bool _loading=true; private bool _submitting; private bool _montoAuto=true; private Inventa.Web.Models.Api.ApiError? _error;
+    private decimal _totalItems => _items.Sum(i=> (i.Cantidad*i.PrecioUnitario)-i.Descuento);
+    private decimal _totalPagos => _pagos.Sum(p=> p.Monto);
+    protected override async Task OnInitializedAsync(){
+        try{
+            _bodegas = await BodegaSvc.ListAsync(CancellationToken.None) ?? [];
+            _clientes = await ClienteSvc.ListAsync(CancellationToken.None) ?? [];
+            _metodos = await CatalogSvc.GetMetodosPagoAsync(CancellationToken.None) ?? [];
+            if(_bodegas.Count>0) _dto.IdBodega=_bodegas[0].IdBodega;
+            AddPago();
+            AddItem();
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); }
+        _loading=false;
+    }
+    private void OnBodegaChanged(int v){ _dto.IdBodega=v; foreach(var l in _items) if(l.Pres is not null) l.Pres.Disponible=null; }
+    private void OnClienteChanged(int? v)=> _dto.IdCliente=v;
+    private void AddItem()=> _items.Add(new LineaVenta());
+    private void RemoveItem(LineaVenta l){ _items.Remove(l); Recalcular(); }
+    private void AddPago()=> _pagos.Add(new LineaPago{ IdMetodoPago = _metodos.Count>0 ? (byte)_metodos[0].IdMetodoPago : (byte)1, Monto = Math.Max(_totalItems-_totalPagos, 0) });
+    private void RemovePago(LineaPago p)=> _pagos.Remove(p);
+    private void OnPresChanged(LineaVenta l, PresentacionBusquedaDto? v){
+        l.Pres=v;
+        l.PrecioUnitario = v?.PrecioVigente is > 0 ? v.PrecioVigente.Value : 0m; // S126: sin precio vigente no queda el de la línea anterior
+        Recalcular();
+    }
+    // Con un solo pago que el usuario no ha tocado, el monto sigue al total de los productos.
+    private void Recalcular(){ if(_montoAuto && _pagos.Count==1) _pagos[0].Monto=Math.Max(_totalItems, 0); }
+    // S127 (P23): los pagos suman el total al peso (como el servidor); el vuelto del efectivo solo se muestra.
+    private static decimal Redondo(decimal v)=> Math.Round(v, 0, MidpointRounding.AwayFromZero);
+    private decimal Diferencia => Redondo(_totalItems) - Redondo(_totalPagos);
+    private bool EsEfectivo(LineaPago p)=> _metodos.Any(m=> m.IdMetodoPago==p.IdMetodoPago && m.Codigo=="EFE");
+    private static string? TextoVuelto(LineaPago p)=> p.Recibido is not decimal r ? null : r>=p.Monto ? $"Vuelto: {FormatoCl.Moneda(r-p.Monto)}" : "El efectivo recibido no alcanza para el monto.";
+    private decimal VueltoTotal => _pagos.Where(p=> EsEfectivo(p) && p.Recibido > p.Monto).Sum(p=> p.Recibido!.Value - p.Monto);
+    private static string Resumen(LineaVenta l){
+        var sub=$"Subtotal {FormatoCl.Moneda((l.Cantidad*l.PrecioUnitario)-l.Descuento)}";
+        if(l.Pres is null) return sub;
+        var disp=l.Pres.Disponible.HasValue ? $" · Disponible en la bodega: {FormatoCl.Cantidad(l.Pres.Disponible)}" : "";
+        return $"{l.Pres.VarCodigo}{disp} · {sub}";
+    }
+    private void Cancel()=> MudDialog.Cancel();
+    private async Task Save(){
+        if(_dto.IdBodega==0){Snackbar.Add("Seleccione la bodega.",Severity.Warning);return;}
+        if(string.IsNullOrWhiteSpace(_dto.NumVenta)){Snackbar.Add("Indique el N° de venta.",Severity.Warning);return;}
+        if(_items.Count==0){Snackbar.Add("Agregue al menos un producto.",Severity.Warning);return;}
+        if(_items.Any(i=> i.Pres is null)){Snackbar.Add("Elija el producto de cada línea.",Severity.Warning);return;}
+        if(_items.Any(i=> i.Cantidad<=0)){Snackbar.Add("La cantidad debe ser mayor que cero.",Severity.Warning);return;}
+        if(_items.Any(i=> i.PrecioUnitario<=0)){Snackbar.Add("Hay productos sin precio vigente: defínelo en Precios.",Severity.Warning);return;}
+        if(_pagos.Count==0){Snackbar.Add("Agregue al menos un pago.",Severity.Warning);return;}
+        if(_pagos.Any(p=> p.Monto<=0)){Snackbar.Add("El monto de cada pago debe ser mayor que cero.",Severity.Warning);return;}
+        if(Diferencia!=0){Snackbar.Add($"Los pagos deben sumar el total de la venta ({FormatoCl.Moneda(_totalItems)}).",Severity.Warning);return;}
+        if(_pagos.Any(p=> EsEfectivo(p) && p.Recibido < p.Monto)){Snackbar.Add("El efectivo recibido no alcanza para su monto.",Severity.Warning);return;}
+        _dto.Items = _items.Select(i=> new VentaItemSp{ IdPresProd=i.Pres!.IdPresProd, Cantidad=i.Cantidad, PrecioUnitario=i.PrecioUnitario, Descuento=i.Descuento }).ToList();
+        _dto.Pagos = _pagos.Select(p=> new VentaPagoSp{ IdMetodoPago=p.IdMetodoPago, Monto=p.Monto, Referencia=EsEfectivo(p) ? null : p.Referencia }).ToList();
+        var vueltoTotal=VueltoTotal;
+        var textoVuelto=vueltoTotal>0 ? $" · Vuelto {FormatoCl.Moneda(vueltoTotal)}" : "";
+        _submitting=true; _error=null; StateHasChanged();
+        try{
+            var res=await VentasSvc.RegistrarAsync(_dto, CancellationToken.None);
+            Snackbar.Add($"Venta {_dto.NumVenta} registrada. Total {FormatoCl.Moneda(res?.Total)}{textoVuelto}",Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); Snackbar.Add("No fue posible registrar la venta.",Severity.Error); }
+        finally{ _submitting=false; StateHasChanged(); }
+    }
+}

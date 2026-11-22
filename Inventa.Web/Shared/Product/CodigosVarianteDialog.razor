@@ -1,0 +1,97 @@
+@using Inventa.Web.Models.Productos
+@inject Inventa.Web.Services.Productos.ProductosApiService Svc
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@* S94 (K3/K6): códigos de barra de una variante. Siempre queda al menos uno y exactamente un principal:
+   el principal no se puede quitar (primero se marca otro). Los internos solo los genera el sistema. *@
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">Códigos de barra · @_variante?.Nombre</MudText></TitleContent>
+    <DialogContent>
+        @if (_variante is null) { <MudText>La variante ya no existe.</MudText> }
+        else
+        {
+            <MudTable Items="@_variante.Codigos" Dense="true" Elevation="0" Bordered="true" Breakpoint="Breakpoint.Xs" data-testid="tabla-codigos">
+                <HeaderContent><MudTh>Código</MudTh><MudTh>Tipo</MudTh><MudTh></MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Código"><span style="font-family:monospace">@context.Codigo</span>
+                        @if (context.Principal) { <MudChip T="string" Size="Size.Small" Color="Color.Primary" Class="ml-1">Principal</MudChip> }</MudTd>
+                    <MudTd DataLabel="Tipo">@context.Tipo</MudTd>
+                    <MudTd>
+                        @if (!context.Principal)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="_busy" OnClick="() => MarcarPrincipal(context)" aria-label="@($"Marcar {context.Codigo} como principal")">Marcar principal</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="_busy" OnClick="() => Quitar(context)" aria-label="@($"Quitar {context.Codigo}")">Quitar</MudButton>
+                        }
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+
+            <MudText Typo="Typo.subtitle2" Class="mt-4">Agregar código</MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="5"><MudTextField @bind-Value="_nuevo.Codigo" Label="Código de barras" Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="20" Immediate="true" aria-label="Nuevo código de barras" data-testid="cod-nuevo" /></MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudSelect T="byte" @bind-Value="_nuevo.Tipo" Label="Tipo" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                        <MudSelectItem Value="@TipoCodigoAlta.Normal">EAN / UPC</MudSelectItem>
+                        <MudSelectItem Value="@TipoCodigoAlta.Proveedor">Proveedor</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" sm="4" Class="d-flex align-center"><MudCheckBox T="bool" @bind-Value="_nuevo.Principal" Label="Dejar como principal" Dense="true" /></MudItem>
+            </MudGrid>
+            @if (_error is not null) { <MudAlert Severity="Severity.Error" Class="mt-2" data-testid="cod-error">@_error.Detail</MudAlert> }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cerrar" Disabled="_busy">Cerrar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Agregar" Disabled="@(_busy || _variante is null)" aria-label="Agregar código">@(_busy ? "Guardando..." : "Agregar")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public long IdProd { get; set; }
+    [Parameter] public FichaVarianteDto? Variante { get; set; }
+    private FichaVarianteDto? _variante;
+    private CodigoNuevoDto _nuevo = new();
+    private bool _busy, _cambios;
+    private Inventa.Web.Models.Api.ApiError? _error;
+
+    protected override void OnInitialized() => _variante = Variante;
+    private void Cerrar() => MudDialog.Close(DialogResult.Ok(_cambios));
+
+    private async Task Agregar()
+    {
+        _nuevo.Codigo = (_nuevo.Codigo ?? "").Trim();
+        if (_nuevo.Codigo.Length == 0) { Snackbar.Add("Ingresa el código de barras.", Severity.Warning); return; }
+        await Ejecutar(() => Svc.AgregarCodigoAsync(_variante!.IdVarProd, _nuevo, CancellationToken.None), "Código agregado.");
+        if (_error is null) _nuevo = new();
+    }
+
+    private Task MarcarPrincipal(FichaCodigoDto c) =>
+        Ejecutar(() => Svc.MarcarPrincipalAsync(c.IdCodBar, CancellationToken.None), $"{c.Codigo} es ahora el código principal.");
+
+    private async Task Quitar(FichaCodigoDto c)
+    {
+        var dlg = await Dialogs.ShowAsync<Inventa.Web.Shared.Price.ConfirmDialog>("Quitar código", new DialogParameters
+        {
+            ["Title"] = "Quitar código de barras", ["Message"] = $"¿Quitar el código {c.Codigo} de esta variante?", ["ConfirmText"] = "Quitar"
+        });
+        var r = await dlg.Result;
+        if (r is null || r.Canceled) return;
+        await Ejecutar(() => Svc.QuitarCodigoAsync(c.IdCodBar, CancellationToken.None), "Código quitado.");
+    }
+
+    private async Task Ejecutar(Func<Task> accion, string ok)
+    {
+        _busy = true; _error = null; StateHasChanged();
+        try
+        {
+            await accion();
+            _cambios = true;
+            Snackbar.Add(ok, Severity.Success);
+            var ficha = await Svc.GetFichaAsync(IdProd, CancellationToken.None);
+            _variante = ficha?.Variantes.FirstOrDefault(v => v.IdVarProd == _variante!.IdVarProd);
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex) { _error = ex.ToApiError(); }
+        catch (HttpRequestException) { _error = new() { Title = "Sin conexión", Detail = "No se pudo contactar al servidor. Intenta nuevamente." }; }
+        finally { _busy = false; StateHasChanged(); }
+    }
+}

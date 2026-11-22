@@ -1,0 +1,27 @@
+@* S57.4 P1.3 safe publish flow step 5: explicit confirmation BEFORE PATCH. Shows centralized
+   diagnostics reasons; backend still re-validates (422 inactive). Unpublish stays direct (instantly reversible). *@
+<MudDialog data-testid="publish-confirm-dialog">
+    <TitleContent><MudText Typo="Typo.h6">Confirmar publicación en tienda</MudText></TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body1"><b>@Codigo</b> — @Nombre</MudText>
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">Diagnóstico del servidor:</MudText>
+        @foreach (var r in Razones)
+        {
+            <MudText Typo="Typo.body2">· @r</MudText>
+        }
+        <MudAlert Severity="Severity.Info" Class="mt-2">Al confirmar, el producto será visible en la tienda pública de este tenant. Puedes despublicarlo en cualquier momento.</MudAlert>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel" aria-label="Cancelar publicación" data-testid="publish-confirm-cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Success" Variant="Variant.Filled" OnClick="Confirm" aria-label="Confirmar publicación" data-testid="publish-confirm-ok">Publicar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public string Codigo { get; set; } = "";
+    [Parameter] public string Nombre { get; set; } = "";
+    [Parameter] public List<string> Razones { get; set; } = new();
+    private void Cancel() => MudDialog.Cancel();
+    private void Confirm() => MudDialog.Close(DialogResult.Ok(true));
+}

@@ -1,0 +1,155 @@
+﻿@using Inventa.Web.Models.Precios
+@using Inventa.Web.Services.Precios
+@inject PreciosApiService Api
+@* S93.1 (K5): revisión antes de guardar. Simula en el servidor (mismo plan que se aplicará) y muestra
+   antes → después, acciones, avisos D3 (con Mantener/Terminar por variante), omitidos y errores.
+   Guardar aplica el lote entero en una transacción; devuelve el resultado o la lista de desactualizados. *@
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">Revisar y guardar cambios</MudText></TitleContent>
+    <DialogContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="2" Class="mb-2">
+            <MudText Typo="Typo.body2">Los precios oficiales rigen</MudText>
+            <MudRadioGroup T="bool" Value="_programar" ValueChanged="OnProgramar">
+                <MudRadio T="bool" Value="false" Dense="true">desde hoy</MudRadio>
+                <MudRadio T="bool" Value="true" Dense="true">desde una fecha</MudRadio>
+            </MudRadioGroup>
+            @if (_programar)
+            {
+                <MudDatePicker Date="_fecha" DateChanged="OnFecha" MinDate="Hoy.AddDays(1).ToDateTime(TimeOnly.MinValue)" DateFormat="dd-MM-yyyy"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:170px" aria-label="Fecha de vigencia común" />
+            }
+        </MudStack>
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2 d-block">Cada cambio crea una nueva vigencia; el historial no se modifica.</MudText>
+
+        @if (_cargando) { <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-3" /> }
+        else if (_resp is { } r)
+        {
+            @if (r.Conflicto)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mb-2" data-testid="revision-conflicto">
+                    Otra persona cambió el precio u oferta de @FormatoCl.Miles(r.Desactualizados.Count) variante(s) mientras editaba. Recargue la página y vuelva a aplicar esos cambios.
+                </MudAlert>
+            }
+            @if (r.Errores.Count > 0)
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-2" data-testid="revision-errores">
+                    <MudText Typo="Typo.body2"><b>Corrija estos cambios antes de guardar:</b></MudText>
+                    @foreach (var e in r.Errores) { <MudText Typo="Typo.body2">• @NombreDe(e.IdPresProd): @e.Mensaje</MudText> }
+                </MudAlert>
+            }
+            @if (r.Resultado is { } res)
+            {
+                @if (res.Omitidos.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">@FormatoCl.Miles(res.Omitidos.Count) cambio(s) sin efecto se omiten (el precio ya es ese).</MudAlert>
+                }
+                <MudTable Items="res.Presentaciones" Dense="true" Elevation="0" Bordered="true" Breakpoint="Breakpoint.Sm" data-testid="revision-tabla">
+                    <HeaderContent>
+                        <MudTh>Variante</MudTh><MudTh>Paga hoy</MudTh><MudTh>Qué se hará</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Variante"><MudText Typo="Typo.body2"><b>@context.Codigo</b></MudText><MudText Typo="Typo.caption">@context.Nombre</MudText></MudTd>
+                        <MudTd DataLabel="Paga hoy">
+                            @if (context.EfectivoAntes != context.EfectivoDespues)
+                            {
+                                <MudText Typo="Typo.caption" Style="text-decoration:line-through">@FormatoCl.Moneda(context.EfectivoAntes)</MudText>
+                            }
+                            <MudText Typo="Typo.body2"><b>@FormatoCl.Moneda(context.EfectivoDespues)</b></MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Qué se hará">
+                            @foreach (var a in context.Acciones) { <MudText Typo="Typo.body2">@a</MudText> }
+                            @foreach (var a in context.Avisos) { <MudText Typo="Typo.caption" Color="Color.Warning" Class="d-block">⚠ @a</MudText> }
+                            @if (context.AfectaOferta)
+                            {
+                                <MudSelect T="OpcionOferta?" Value="OpcionDe(context.IdPresProd)" ValueChanged="v => OnOpcion(context.IdPresProd, v)" Label="Oferta actual"
+                                           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="mt-1" Style="max-width:260px" data-testid="revision-opcion-oferta">
+                                    <MudSelectItem T="OpcionOferta?" Value="@((OpcionOferta?)null)">Automático</MudSelectItem>
+                                    <MudSelectItem T="OpcionOferta?" Value="@((OpcionOferta?)OpcionOferta.Mantener)">Mantener con el nuevo precio</MudSelectItem>
+                                    <MudSelectItem T="OpcionOferta?" Value="@((OpcionOferta?)OpcionOferta.Terminar)">Terminar la oferta</MudSelectItem>
+                                </MudSelect>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        }
+        @* S93.1: el error sin respuesta (401, red) también se muestra; antes quedaba el diálogo vacío. *@
+        @if (!_cargando && _mensaje is not null) { <MudAlert Severity="Severity.Error" Class="mt-2" data-testid="revision-mensaje">@_mensaje</MudAlert> }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Volver">Volver</MudButton>
+        @if (_resp?.Conflicto == true)
+        {
+            <MudButton Color="Color.Warning" Variant="Variant.Filled" OnClick="Recargar" data-testid="revision-recargar">Recargar</MudButton>
+        }
+        else
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="!PuedeGuardar" OnClick="Guardar" data-testid="revision-guardar">
+                @if (_guardando) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+                Guardar @(Cantidad) cambio(s)
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    /// <summary>Resultado del diálogo cuando hay conflicto: la página recarga y descarta esos pendientes.</summary>
+    public sealed record ConflictoPrecios(IReadOnlyList<long> Desactualizados);
+
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public List<CambioPrecioDto> Cambios { get; set; } = [];
+    [Parameter] public DateOnly Hoy { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+    [Parameter] public IReadOnlyDictionary<long, string> Nombres { get; set; } = new Dictionary<long, string>();
+
+    private RespuestaCambiosPrecios? _resp;
+    private bool _cargando = true, _guardando, _programar;
+    private DateTime? _fecha;
+    private string? _mensaje;
+    private readonly Dictionary<long, OpcionOferta?> _opciones = [];
+
+    private int Cantidad => Cambios.Count;
+    private bool PuedeGuardar => !_cargando && !_guardando && _resp is { Ok: true } && (!_programar || _fecha is not null);
+
+    protected override Task OnInitializedAsync() => SimularAsync();
+
+    private string NombreDe(long id) => Nombres.TryGetValue(id, out var n) ? n : _resp?.Resultado?.Presentaciones.FirstOrDefault(p => p.IdPresProd == id)?.Nombre ?? $"#{id}";
+    private OpcionOferta? OpcionDe(long id) => _opciones.TryGetValue(id, out var o) ? o : null;
+
+    // Lote que se envía: fecha común para los precios oficiales sin fecha propia y la opción D3 elegida.
+    private List<CambioPrecioDto> Lote() => Cambios.Select(c => c.Tipo != TipoCambioPrecio.PrecioOficial ? c : c with
+    {
+        Desde = _programar && _fecha is DateTime f ? DateOnly.FromDateTime(f) : c.Desde,
+        ConOferta = _opciones.TryGetValue(c.IdPresProd, out var o) ? o : c.ConOferta
+    }).ToList();
+
+    private async Task SimularAsync()
+    {
+        _cargando = true; _mensaje = null; StateHasChanged();
+        try { _resp = await Api.SimularAsync(Lote(), CancellationToken.None); }
+        catch (Inventa.Web.Models.Api.ApiException ex) { _resp = null; _mensaje = ex.StatusCode == 401 ? "La sesión expiró. Vuelva a iniciar sesión e intente de nuevo." : ex.Message; }
+        catch (HttpRequestException) { _resp = null; _mensaje = "No se pudo contactar al servidor."; }
+        finally { _cargando = false; }
+    }
+
+    private async Task OnProgramar(bool v) { _programar = v; if (!v || _fecha is not null) await SimularAsync(); }
+    private async Task OnFecha(DateTime? v) { _fecha = v; if (v is not null) await SimularAsync(); }
+    private async Task OnOpcion(long id, OpcionOferta? v) { _opciones[id] = v; await SimularAsync(); }
+
+    private async Task Guardar()
+    {
+        _guardando = true; _mensaje = null;
+        try
+        {
+            var r = await Api.AplicarAsync(Lote(), CancellationToken.None);
+            if (r.Ok) { MudDialog.Close(DialogResult.Ok(r.Resultado!)); return; }
+            _resp = r; // 422/409 en carrera: se muestran igual que en la simulación
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex) { _mensaje = ex.StatusCode == 401 ? "La sesión expiró: no se guardó nada. Vuelva a iniciar sesión." : ex.Message; }
+        catch (HttpRequestException) { _mensaje = "No se pudo contactar al servidor: no se guardó nada."; }
+        finally { _guardando = false; }
+    }
+
+    private void Recargar() => MudDialog.Close(DialogResult.Ok(new ConflictoPrecios(_resp!.Desactualizados)));
+    private void Volver() => MudDialog.Cancel();
+}

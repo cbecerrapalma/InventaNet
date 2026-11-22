@@ -1,0 +1,58 @@
+@* S91.2: tabla de incidencias de importación con filtro (Errores/Advertencias/Todas) y paginación.
+   Compartida por el asistente y el detalle de lote; reutilizable por las plantillas futuras de Inventa. *@
+@using Inventa.Web.Models.Importacion
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="2" Class="mb-2">
+    <MudText Typo="Typo.subtitle1" HtmlTag="h2">Incidencias (@FormatoCl.Miles(Incidencias.Count))</MudText>
+    <MudSpacer />
+    <MudSelect T="string" @bind-Value="_filtro" Label="Mostrar" Variant="Variant.Outlined" Margin="Margin.Dense"
+               Dense="true" Class="inv-filtro-incidencias" aria-label="Filtrar incidencias" data-testid="filtro-incidencias">
+        <MudSelectItem Value="@("Todas")">Todas (@FormatoCl.Miles(Incidencias.Count))</MudSelectItem>
+        <MudSelectItem Value="@("Error")">Errores (@FormatoCl.Miles(Incidencias.Count(i => EsError(i))))</MudSelectItem>
+        <MudSelectItem Value="@("Advertencia")">Advertencias (@FormatoCl.Miles(Incidencias.Count(i => !EsError(i))))</MudSelectItem>
+    </MudSelect>
+</MudStack>
+
+<MudTable Items="@Filtradas" Dense="true" Hover="true" Elevation="0" Bordered="true" RowsPerPage="10" Breakpoint="Breakpoint.Sm" Class="inv-tabla-compacta" data-testid="@TestId">
+    <HeaderContent>
+        <MudTh>Fila</MudTh><MudTh>Columna</MudTh><MudTh>Código</MudTh><MudTh>Mensaje</MudTh><MudTh>Severidad</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Fila">@(context.Fila > 0 ? FormatoCl.Miles(context.Fila) : "—")</MudTd>
+        <MudTd DataLabel="Columna">@(string.IsNullOrWhiteSpace(context.Columna) ? "—" : context.Columna)</MudTd>
+        <MudTd DataLabel="Código" HideSmall="true">@context.Codigo</MudTd>
+        <MudTd DataLabel="Mensaje">@context.Mensaje</MudTd>
+        <MudTd DataLabel="Severidad">
+            <MudChip T="string" Size="Size.Small" Color="@(EsError(context) ? Color.Error : Color.Warning)">@(EsError(context) ? "Error" : "Advertencia")</MudChip>
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText Typo="Typo.body2">No hay incidencias con este filtro.</MudText></NoRecordsContent>
+    <PagerContent>
+        <MudTablePager PageSizeOptions="@(new[] { 10, 25, 50 })" RowsPerPageString="Filas por página:" InfoFormat="{first_item}-{last_item} de {all_items}" />
+    </PagerContent>
+</MudTable>
+@if (Total > Incidencias.Count)
+{
+    <MudText Typo="Typo.caption" Class="mt-1" data-testid="incidencias-truncadas">
+        Se muestran @FormatoCl.Miles(Incidencias.Count) de @FormatoCl.Miles(Total) incidencias. Descarga el reporte para ver el detalle completo.
+    </MudText>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<IncidenciaLoteDto> Incidencias { get; set; } = [];
+    /// <summary>Total real de incidencias del lote (la API devuelve solo una muestra).</summary>
+    [Parameter] public int Total { get; set; }
+    [Parameter] public string TestId { get; set; } = "tabla-incidencias";
+
+    private string _filtro = "Todas";
+
+    private static bool EsError(IncidenciaLoteDto i) =>
+        string.Equals(i.Severidad, "Error", StringComparison.OrdinalIgnoreCase);
+
+    private IEnumerable<IncidenciaLoteDto> Filtradas => _filtro switch
+    {
+        "Error" => Incidencias.Where(EsError),
+        "Advertencia" => Incidencias.Where(i => !EsError(i)),
+        _ => Incidencias,
+    };
+}

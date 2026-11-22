@@ -1,0 +1,56 @@
+@using Inventa.Web.Models.Productos
+@inject Inventa.Web.Services.Productos.ProductosApiService ProductosSvc
+
+@* S117 (P19): buscador de presentaciones de los formularios de venta y compra (GET api/productos/presentaciones/search). S131: también Transferir y Ajustar (Uso="inventario": disponible sin precio). *@
+<MudAutocomplete T="PresentacionBusquedaDto" Value="Value" ValueChanged="OnValueChanged" SearchFunc="Buscar" ToStringFunc="Texto"
+                 Label="@Label" Placeholder="Código, nombre o código de barras" Variant="Variant.Outlined" Margin="Margin.Dense"
+                 MinCharacters="2" DebounceInterval="300" MaxItems="10" Immediate="true" ResetValueOnEmptyText="true" Clearable="true"
+                 ShowProgressIndicator="true" Required="@Required" RequiredError="Elija un producto" aria-label="@Label" data-testid="buscador-producto">
+    <ItemTemplate Context="p">
+        <div>
+            <MudText Typo="Typo.body2">@p.ProdNombre · @p.VarNombre</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@Detalle(p)</MudText>
+        </div>
+    </ItemTemplate>
+    <NoItemsTemplate>
+        <MudText Typo="Typo.body2" Class="px-4 py-2">Sin productos que coincidan.</MudText>
+    </NoItemsTemplate>
+</MudAutocomplete>
+
+@code {
+    [Parameter] public PresentacionBusquedaDto? Value { get; set; }
+    [Parameter] public EventCallback<PresentacionBusquedaDto?> ValueChanged { get; set; }
+    /// <summary>«venta» (por defecto), «compra» o «inventario» (disponible en la bodega, sin precio).</summary>
+    [Parameter] public string Uso { get; set; } = "venta";
+    /// <summary>Bodega para mostrar el disponible (venta e inventario).</summary>
+    [Parameter] public int? IdBodega { get; set; }
+    [Parameter] public string Label { get; set; } = "Producto";
+    /// <summary>Si es «false», el campo vacío no es error (uso dentro de un formulario con su propio botón «Agregar»).</summary>
+    [Parameter] public bool Required { get; set; } = true;
+
+    private Task OnValueChanged(PresentacionBusquedaDto? v) => ValueChanged.InvokeAsync(v);
+
+    private static string Texto(PresentacionBusquedaDto? p) => p is null ? "" : $"{p.ProdNombre} · {p.VarNombre}";
+
+    private string Detalle(PresentacionBusquedaDto p)
+    {
+        var partes = new List<string> { p.VarCodigo };
+        if (!string.IsNullOrEmpty(p.CodigoBarra)) partes.Add(p.CodigoBarra);
+        if (Uso == "venta" && p.PrecioVigente.HasValue) partes.Add(FormatoCl.Moneda(p.PrecioVigente));
+        if (Uso != "compra" && p.Disponible.HasValue) partes.Add($"Disponible {FormatoCl.Cantidad(p.Disponible)}");
+        if (Uso == "compra" && p.CostoProm > 0) partes.Add($"Costo {FormatoCl.Moneda(p.CostoProm)}");
+        return string.Join(" · ", partes);
+    }
+
+    private async Task<IEnumerable<PresentacionBusquedaDto>> Buscar(string? texto, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(texto) || texto.Trim().Length < 2) return [];
+        try
+        {
+            var r = await ProductosSvc.SearchPresentacionesPagedAsync(texto, Uso, Uso != "compra" ? IdBodega : null, 1, 10, ct);
+            return r?.Items ?? [];
+        }
+        catch (OperationCanceledException) { return []; }
+        catch (Inventa.Web.Models.Api.ApiException) { return []; }
+    }
+}

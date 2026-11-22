@@ -1,0 +1,385 @@
+@using Inventa.Web.Models.Productos
+@using Inventa.Web.Models.Api
+@using Inventa.Web.Models
+@inject Inventa.Web.Services.Productos.ProductosApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService Perms
+@inject ISnackbar Snackbar
+@inject AppSettings AppSettings
+@inject CBP.Blazor.Services.DirectUploadClient Uploader
+
+<MudStack Spacing="2" data-testid="product-images-section">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+        <MudStack Spacing="0">
+            <MudText Typo="Typo.h6" data-testid="images-title">Imágenes del producto</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Formatos JPG, PNG, WEBP — máximo 5 MB por archivo. La primera imagen es principal.</MudText>
+        </MudStack>
+        @if (_canEdit)
+        {
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                <InputFile OnChange="OnFileSelected" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-label="Seleccionar imagen" data-testid="image-file-input" style="display:none" id="@($"product-image-input-{IdProd}")" />
+                <MudButton HtmlTag="label" Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.UploadFile" for="@($"product-image-input-{IdProd}")" Disabled="_uploading" data-testid="select-image-btn" aria-label="Seleccionar imagen">Seleccionar</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" StartIcon="@Icons.Material.Filled.CloudUpload" OnClick="UploadAsync" Disabled="@(_selectedFile is null || _uploading)" data-testid="upload-image-btn" aria-label="Subir imagen">
+                    @(_uploading ? "Subiendo..." : "Subir")
+                </MudButton>
+            </MudStack>
+        }
+    </MudStack>
+
+    @if (!string.IsNullOrWhiteSpace(_selectedName))
+    {
+        <MudAlert Severity="@(_validationError is not null ? Severity.Warning : Severity.Info)" data-testid="selected-file-info">
+            <MudText Typo="Typo.body2" data-testid="selected-file-name">Seleccionado: @_selectedName (@FormatSize(_selectedSize))</MudText>
+            @if (_validationError is not null)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Error" data-testid="validation-error">@_validationError</MudText>
+            }
+        </MudAlert>
+    }
+
+    @if (_validationError is not null && string.IsNullOrWhiteSpace(_selectedName))
+    {
+        <MudAlert Severity="Severity.Warning" data-testid="validation-error">@_validationError</MudAlert>
+    }
+
+    @if (_uploadError is not null)
+    {
+        <MudAlert Severity="Severity.Error" data-testid="upload-error">@_uploadError<br/><MudText Typo="Typo.caption">Código de seguimiento: @_correlationId</MudText></MudAlert>
+    }
+
+    @if (_loading)
+    {
+        <LoadingState Message="Cargando imágenes..." />
+    }
+    else if (_apiError is not null)
+    {
+        <ErrorState Title="@_apiError.Title" Detail="@_apiError.Detail" CorrelationId="@_apiError.CorrelationId" OnRetry="LoadAsync" />
+    }
+    else if (_images.Count == 0)
+    {
+        <EmptyState Title="Sin imágenes" Description="Este producto aún no tiene imágenes. Sube la primera para establecer la principal." Icon="@Icons.Material.Filled.Image" data-testid="empty-images">
+            <Action>
+                @if (_canEdit)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Usa Seleccionar y Subir para agregar una imagen.</MudText>
+                }
+            </Action>
+        </EmptyState>
+        @if (_canEdit)
+        {
+            <MudPaper Class="pa-4 d-flex align-center justify-center" Elevation="0" Style="border:1px dashed var(--mud-palette-lines-default); min-height:120px" data-testid="image-placeholder">
+                <MudStack AlignItems="AlignItems.Center" Spacing="1">
+                    <MudIcon Icon="@Icons.Material.Filled.ImageNotSupported" Size="Size.Large" Color="Color.Secondary" />
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Sin imagen — se mostrará una imagen genérica en la tienda</MudText>
+                </MudStack>
+            </MudPaper>
+        }
+    }
+    else
+    {
+        <MudText Typo="Typo.caption" Color="Color.Secondary" data-testid="images-count">@FormatoCl.Miles(_images.Count) @(_images.Count == 1 ? "imagen" : "imágenes") — la principal está marcada con estrella.</MudText>
+        @if (_actionError is not null)
+        {
+            <MudAlert Severity="Severity.Error" data-testid="action-error">@_actionError<br/><MudText Typo="Typo.caption">Código de seguimiento: @_actionCorrelation</MudText></MudAlert>
+        }
+        <MudGrid Spacing="2" data-testid="images-grid">
+            @{
+                var ordered = _images.OrderBy(i => i.Orden).ToList();
+            }
+            @for (int idx = 0; idx < ordered.Count; idx++)
+            {
+                var img = ordered[idx];
+                var absUrl = ImgSrc(img);
+                var isFirst = idx == 0;
+                var isLast = idx == ordered.Count - 1;
+                <MudItem xs="6" sm="4" md="3" data-testid="image-item">
+                    <MudPaper Class="pa-2" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default); position:relative">
+                        @if (img.EsPrincipal)
+                        {
+                            <MudChip T="string" Color="Color.Primary" Size="Size.Small" Icon="@Icons.Material.Filled.Star" Style="position:absolute; top:6px; left:6px; z-index:1" data-testid="principal-badge">Principal</MudChip>
+                        }
+
+                        <div style="width:100%; height:140px; display:flex; align-items:center; justify-content:center; overflow:hidden; background:#fafafa; border-radius:6px; aspect-ratio:4/3; min-height:140px" data-testid="image-frame">
+                            <img src="@absUrl" alt="@($"Imagen {idx + 1} del producto{(img.EsPrincipal ? " (principal)" : "")}")" loading="lazy" style="max-width:100%; max-height:140px; object-fit:contain" data-testid="image-thumb" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'" />
+                            <div style="display:none; width:100%; height:100%; align-items:center; justify-content:center"><MudIcon Icon="@Icons.Material.Filled.BrokenImage" Color="Color.Secondary" /></div>
+                        </div>
+
+                        @if (_canEdit)
+                        {
+                            <MudStack Row="true" Spacing="1" Class="mt-2" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                <MudStack Row="true" Spacing="1">
+                                    @if (!img.EsPrincipal)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Star" Disabled="_mutating" OnClick="@(() => SetPrincipalAsync(img.IdProductoImagen))" data-testid="@($"set-principal-btn-{img.IdProductoImagen}")" aria-label="Establecer como principal">Principal</MudButton>
+                                    }
+                                    else
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Icon="@Icons.Material.Filled.Star" data-testid="@($"is-principal-{img.IdProductoImagen}")">Principal</MudChip>
+                                    }
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" Disabled="_mutating" OnClick="@(() => RequestDelete(img.IdProductoImagen))" data-testid="@($"delete-image-btn-{img.IdProductoImagen}")" aria-label="Eliminar imagen" />
+                                </MudStack>
+                                <MudStack Row="true" Spacing="0">
+                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Disabled="@(_mutating || isFirst)" OnClick="@(() => MoveAsync(img.IdProductoImagen, -1))" data-testid="@($"move-up-{img.IdProductoImagen}")" aria-label="Mover arriba" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Disabled="@(_mutating || isLast)" OnClick="@(() => MoveAsync(img.IdProductoImagen, 1))" data-testid="@($"move-down-{img.IdProductoImagen}")" aria-label="Mover abajo" />
+                                </MudStack>
+                            </MudStack>
+                            @if (_deleteConfirmId == img.IdProductoImagen)
+                            {
+                                <MudPaper Class="pa-2 mt-2" Elevation="0" Style="border:1px solid var(--mud-palette-error); background: var(--mud-palette-error-lighten)" data-testid="@($"delete-confirm-{img.IdProductoImagen}")">
+                                    <MudText Typo="Typo.caption">¿Eliminar esta imagen?</MudText>
+                                    <MudStack Row="true" Spacing="1" Class="mt-1">
+                                        <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Disabled="_mutating" OnClick="@(() => ConfirmDeleteAsync(img.IdProductoImagen))" data-testid="@($"confirm-delete-{img.IdProductoImagen}")" aria-label="Confirmar eliminar">Eliminar</MudButton>
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="_mutating" OnClick="CancelDelete" data-testid="@($"cancel-delete-{img.IdProductoImagen}")" aria-label="Cancelar">Cancelar</MudButton>
+                                    </MudStack>
+                                </MudPaper>
+                            }
+                        }
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired] public long IdProd { get; set; }
+
+    private bool _canView; private bool _canEdit;
+    private bool _loading = true;
+    private ApiError? _apiError;
+    private List<ProductoImagenDto> _images = [];
+
+    private IBrowserFile? _selectedFile;
+    private string? _selectedName;
+    private long _selectedSize;
+    private string? _validationError;
+    private string? _uploadError;
+    private string? _correlationId;
+    private bool _uploading;
+    private bool _mutating;
+    private int? _deleteConfirmId;
+    private string? _actionError;
+    private string? _actionCorrelation;
+
+    private static readonly HashSet<string> AllowedExt = new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp" };
+    private static readonly HashSet<string> AllowedMime = new(StringComparer.OrdinalIgnoreCase) { "image/jpeg", "image/png", "image/webp" };
+    private const long MaxBytes = 5 * 1024 * 1024;
+    // S104: lado mayor de la imagen que se sube; el navegador la redimensiona antes de enviarla.
+    private const int MaxLadoPx = 1600;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canView = await Perms.HasPermissionAsync("INVENTA_PRODUCTOS_DETALLE_VER");
+        _canEdit = await Perms.HasPermissionAsync("INVENTA_PRODUCTOS_DETALLE_EDITAR");
+        await LoadAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IdProd != 0) await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (!_canView) { _loading = false; return; }
+        _loading = true; _apiError = null; StateHasChanged();
+        try
+        {
+            var list = await Svc.ListImagenesAsync(IdProd, CancellationToken.None);
+            _images = list?.ToList() ?? [];
+        }
+        catch (ApiException ex)
+        {
+            _apiError = ex.ToApiError();
+        }
+        catch (Exception ex)
+        {
+            _apiError = new ApiError { Title = "Error", Detail = ex.Message, StatusCode = 0 };
+        }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _validationError = null; _uploadError = null; _correlationId = null;
+        var file = e.File;
+        if (file is null) { _validationError = "Archivo no seleccionado."; _selectedFile = null; _selectedName = null; return; }
+        var ext = Path.GetExtension(file.Name);
+        if (string.IsNullOrWhiteSpace(ext) || !AllowedExt.Contains(ext))
+        {
+            _validationError = $"Extensión no permitida ({ext}). Permitidas: .jpg, .jpeg, .png, .webp";
+            _selectedFile = null; _selectedName = file.Name; _selectedSize = file.Size;
+            StateHasChanged(); return;
+        }
+        if (!AllowedMime.Contains(file.ContentType))
+        {
+            _validationError = $"ContentType no permitido ({file.ContentType}).";
+            _selectedFile = null; _selectedName = file.Name; _selectedSize = file.Size;
+            StateHasChanged(); return;
+        }
+        if (file.Size == 0)
+        {
+            _validationError = "Archivo vacío.";
+            _selectedFile = null; _selectedName = file.Name; _selectedSize = 0;
+            StateHasChanged(); return;
+        }
+        if (file.Size > MaxBytes)
+        {
+            _validationError = $"Archivo excede 5 MB ({FormatSize(file.Size)}).";
+            _selectedFile = null; _selectedName = file.Name; _selectedSize = file.Size;
+            StateHasChanged(); return;
+        }
+        if (file.Name.Contains("..") || file.Name.Contains("/") || file.Name.Contains("\\"))
+        {
+            _validationError = "Nombre de archivo inválido.";
+            _selectedFile = null; _selectedName = file.Name; _selectedSize = file.Size;
+            StateHasChanged(); return;
+        }
+        _selectedFile = file;
+        _selectedName = file.Name;
+        _selectedSize = file.Size;
+        _validationError = null;
+    }
+
+    private async Task UploadAsync()
+    {
+        _validationError = null; _uploadError = null; _correlationId = null;
+        if (_selectedFile is null) { _validationError = "Seleccione un archivo válido primero."; return; }
+        // re-validate before network
+        var ext = Path.GetExtension(_selectedFile.Name);
+        if (!AllowedExt.Contains(ext)) { _validationError = "Extensión no permitida."; return; }
+        if (!AllowedMime.Contains(_selectedFile.ContentType)) { _validationError = "ContentType no permitido."; return; }
+        if (_selectedFile.Size > MaxBytes) { _validationError = "Archivo excede 5 MB."; return; }
+
+        _uploading = true; StateHasChanged();
+        try
+        {
+            // S104: subida directa. 1) el navegador redimensiona; 2) la API autoriza y firma; 3) los bytes van
+            // directo al storage (nunca a la API); 4) la API confirma leyendo solo metadatos.
+            var file = await _selectedFile.RequestImageFileAsync(_selectedFile.ContentType, MaxLadoPx, MaxLadoPx);
+            var subida = await Svc.IniciarSubidaImagenAsync(IdProd, _selectedFile.Name, file.ContentType, file.Size, CancellationToken.None);
+            if (subida is null) { _uploadError = "No se recibió respuesta del servidor."; return; }
+
+            await using var stream = file.OpenReadStream(MaxBytes);
+            var enviado = await Uploader.UploadAsync(
+                new CBP.Blazor.Services.DirectUploadTicket(subida.Url, subida.Metodo, subida.Headers), stream, file.Size, CancellationToken.None);
+            if (!enviado.Success)
+            {
+                _uploadError = enviado.Error ?? "No se pudo enviar el archivo al storage.";
+                Snackbar.Add(_uploadError, Severity.Error);
+                return;
+            }
+
+            var result = await Svc.ConfirmarSubidaImagenAsync(IdProd, subida.IdArchivo, CancellationToken.None);
+            if (result is not null)
+            {
+                Snackbar.Add("Imagen subida.", Severity.Success);
+                _selectedFile = null; _selectedName = null; _validationError = null;
+                await LoadAsync();
+            }
+            else
+            {
+                _uploadError = "No se recibió respuesta del servidor.";
+            }
+        }
+        catch (ApiException ex)
+        {
+            var err = ex.ToApiError();
+            _uploadError = err.Detail ?? err.Title;
+            _correlationId = err.CorrelationId;
+            Snackbar.Add($"{_uploadError} Código de seguimiento: {_correlationId}", Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            _uploadError = ex.Message;
+            Snackbar.Add(_uploadError, Severity.Error);
+        }
+        finally { _uploading = false; StateHasChanged(); }
+    }
+
+    private void RequestDelete(int id) { _deleteConfirmId = id; _actionError = null; }
+    private void CancelDelete() { _deleteConfirmId = null; }
+
+    private async Task SetPrincipalAsync(int idImagen)
+    {
+        if (_mutating) return;
+        _mutating = true; _actionError = null; _actionCorrelation = null; StateHasChanged();
+        try
+        {
+            await Svc.SetPrincipalAsync(IdProd, idImagen, CancellationToken.None);
+            Snackbar.Add("Imagen establecida como principal", Severity.Success);
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            var err = ex.ToApiError(); _actionError = err.Detail ?? err.Title; _actionCorrelation = err.CorrelationId;
+            Snackbar.Add($"{_actionError} Código de seguimiento: {_actionCorrelation}", Severity.Error);
+        }
+        catch (Exception ex) { _actionError = ex.Message; Snackbar.Add(_actionError, Severity.Error); }
+        finally { _mutating = false; StateHasChanged(); }
+    }
+
+    private async Task ConfirmDeleteAsync(int idImagen)
+    {
+        if (_mutating) return;
+        _mutating = true; _actionError = null; _actionCorrelation = null; StateHasChanged();
+        try
+        {
+            await Svc.DeleteImagenAsync(IdProd, idImagen, CancellationToken.None);
+            Snackbar.Add("Imagen eliminada", Severity.Success);
+            _deleteConfirmId = null;
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            var err = ex.ToApiError(); _actionError = err.Detail ?? err.Title; _actionCorrelation = err.CorrelationId;
+            Snackbar.Add($"{_actionError} Código de seguimiento: {_actionCorrelation}", Severity.Error);
+        }
+        catch (Exception ex) { _actionError = ex.Message; Snackbar.Add(_actionError, Severity.Error); }
+        finally { _mutating = false; StateHasChanged(); }
+    }
+
+    private async Task MoveAsync(int idImagen, int direction)
+    {
+        if (_mutating) return;
+        var ordered = _images.OrderBy(i => i.Orden).ToList();
+        var idx = ordered.FindIndex(i => i.IdProductoImagen == idImagen);
+        if (idx == -1) return;
+        var targetIdx = idx + direction;
+        if (targetIdx < 0 || targetIdx >= ordered.Count) return;
+        // swap
+        var tmp = ordered[idx]; ordered[idx] = ordered[targetIdx]; ordered[targetIdx] = tmp;
+        var ids = ordered.Select(i => i.IdProductoImagen).ToList();
+        _mutating = true; _actionError = null; _actionCorrelation = null; StateHasChanged();
+        try
+        {
+            var result = await Svc.ReorderAsync(IdProd, ids, CancellationToken.None);
+            if (result != null) _images = result.ToList();
+            else await LoadAsync();
+            Snackbar.Add("Orden actualizado", Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            var err = ex.ToApiError(); _actionError = err.Detail ?? err.Title; _actionCorrelation = err.CorrelationId;
+            Snackbar.Add($"{_actionError} Código de seguimiento: {_actionCorrelation}", Severity.Error);
+        }
+        catch (Exception ex) { _actionError = ex.Message; Snackbar.Add(_actionError, Severity.Error); }
+        finally { _mutating = false; StateHasChanged(); }
+    }
+
+    private string BuildUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return "";
+        if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return url;
+        var baseUrl = AppSettings.ApiBaseUrl?.TrimEnd('/') ?? "";
+        // S57.83-G4: separador '/' (antes "https://host:portuploads/..." roto).
+        return $"{baseUrl}/{url.TrimStart('/')}";
+    }
+
+    // S104: la API entrega en Url la pública o, si la imagen es privada, una firmada de descarga que el
+    // navegador abre sin token. Url vacía => "" (el onerror muestra el icono).
+    // S108: la tarjeta (140 px) usa la miniatura 'listado' (~7 KB) en vez del original (~88 KB); sin variante, el original.
+    // S108 (dueño): la tarjeta muestra solo la imagen y sus acciones; ni nombre, tipo, tamaño, fecha, ruta ni orden.
+    private string ImgSrc(ProductoImagenDto img) => BuildUrl(string.IsNullOrWhiteSpace(img.UrlMiniatura) ? img.Url : img.UrlMiniatura);
+
+    private static string FormatSize(long bytes) => FormatoCl.TamanoArchivo(bytes);
+}

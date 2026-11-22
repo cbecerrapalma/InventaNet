@@ -1,0 +1,184 @@
+@using Inventa.Web.Models.Precios
+@* S93.1 (K5/K6): editor de precio oficial y oferta de UNA variante. Devuelve la lista de cambios
+   (no escribe): la página los agrega a pendientes y la ficha abre la revisión para guardar. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@Fila.Nombre</MudText>
+        <MudText Typo="Typo.caption" Color="Color.Secondary">@Fila.CodigoVariante@(Fila.CodigoBarras is null ? "" : $" · {Fila.CodigoBarras}")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Precio oficial</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
+            @(Fila.Oficial is null ? "Sin precio oficial." : $"Rige {FormatoCl.Moneda(Fila.Oficial.Valor)} desde el {FormatoCl.Fecha(Fila.Oficial.Desde)}.")
+        </MudText>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudNumericField Culture="@FormatoCl.Cultura" T="decimal?" @bind-Value="_precio" Label="Nuevo precio oficial" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Adornment="Adornment.Start" AdornmentText="$" HideSpinButtons="true" Min="0" Immediate="true"
+                                 Error="@(_precio is not null && !PreciosUi.MontoValido(_precio, Decimales))" ErrorText="@MensajeMonto"
+                                 aria-label="Nuevo precio oficial" data-testid="editor-precio" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudDatePicker Label="Rige desde" Date="_precioDesde" DateChanged="v => _precioDesde = v" MinDate="HoyDt" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               DateFormat="dd-MM-yyyy" Disabled="_precio is null" aria-label="Rige desde" />
+            </MudItem>
+        </MudGrid>
+        @if (Fila.Programado is { } prog)
+        {
+            <MudCheckBox T="bool" @bind-Value="_anularProgramado" Color="Color.Warning" Dense="true" Class="mt-1" data-testid="editor-anular">
+                Anular el precio programado de @FormatoCl.Moneda(prog.Valor) del @FormatoCl.Fecha(prog.Desde)
+            </MudCheckBox>
+        }
+
+        <MudDivider Class="my-3" />
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Oferta</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
+            @(Fila.Oferta is null ? "Sin oferta vigente." : $"Vigente: {PreciosUi.TextoOferta(Fila.Oferta)}.")
+        </MudText>
+        <MudRadioGroup T="string" @bind-Value="_modoOferta" data-testid="editor-modo-oferta">
+            <MudRadio T="string" Value="@("igual")" Dense="true">Sin cambios</MudRadio>
+            <MudRadio T="string" Value="@("nueva")" Dense="true">@(Fila.Oferta is null ? "Poner en oferta" : "Reemplazar la oferta")</MudRadio>
+            @if (Fila.Oferta is not null) { <MudRadio T="string" Value="@("quitar")" Dense="true">Terminar la oferta</MudRadio> }
+        </MudRadioGroup>
+        @if (_modoOferta == "nueva")
+        {
+            <MudGrid Spacing="2" Class="mt-1">
+                <MudItem xs="6">
+                    <MudNumericField Culture="@FormatoCl.Cultura" T="decimal?" Value="_ofertaPrecio" ValueChanged="OnOfertaPrecio" Label="Precio de oferta" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     Adornment="Adornment.Start" AdornmentText="$" HideSpinButtons="true" Immediate="true" aria-label="Precio de oferta" data-testid="editor-oferta-precio" />
+                </MudItem>
+                <MudItem xs="6">
+                    <MudNumericField Culture="@FormatoCl.Cultura" T="decimal?" Value="_ofertaPct" ValueChanged="OnOfertaPct" Label="% descuento" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     Adornment="Adornment.End" AdornmentText="%" HideSpinButtons="true" Immediate="true" Min="1" Max="99" aria-label="Porcentaje de descuento" data-testid="editor-oferta-pct" />
+                </MudItem>
+                <MudItem xs="6">
+                    <MudDatePicker Label="Desde" Date="_ofertaDesde" DateChanged="v => _ofertaDesde = v" MinDate="HoyDt" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd-MM-yyyy" aria-label="Oferta desde" />
+                </MudItem>
+                <MudItem xs="6">
+                    <MudDatePicker Label="Hasta (opcional)" Date="_ofertaHasta" DateChanged="v => _ofertaHasta = v" MinDate="_ofertaDesde ?? HoyDt" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd-MM-yyyy" aria-label="Oferta hasta" />
+                </MudItem>
+                <MudItem xs="12" Class="d-flex flex-wrap gap-1">
+                    @foreach (var (txt, dias) in new[] { ("7 días", 7), ("15 días", 15), ("30 días", 30) })
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => Atajo(dias))">@txt</MudChip>
+                    }
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClick="AtajoFinDeMes">Fin de mes</MudChip>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudText Typo="Typo.caption" Color="@(ErrorOferta is null ? Color.Secondary : Color.Error)" data-testid="editor-oferta-ayuda">
+                        @(ErrorOferta ?? (Referencia is decimal r ? $"Referencia: {FormatoCl.Moneda(r)} (precio oficial que regirá al inicio de la oferta)." : ""))
+                    </MudText>
+                </MudItem>
+            </MudGrid>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancelar">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="!PuedeAceptar" OnClick="Aceptar" data-testid="editor-aceptar">@TextoAceptar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public FilaPrecioDto Fila { get; set; } = default!;
+    [Parameter] public int Decimales { get; set; }
+    [Parameter] public DateOnly Hoy { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+    [Parameter] public PendientesPrecio? Pendientes { get; set; }
+    [Parameter] public string TextoAceptar { get; set; } = "Agregar a cambios";
+
+    private decimal? _precio;
+    private DateTime? _precioDesde;
+    private bool _anularProgramado;
+    private string _modoOferta = "igual";
+    private decimal? _ofertaPrecio;
+    private decimal? _ofertaPct;
+    private DateTime? _ofertaDesde;
+    private DateTime? _ofertaHasta;
+
+    private DateTime HoyDt => Hoy.ToDateTime(TimeOnly.MinValue);
+    private string MensajeMonto => Decimales == 0 ? "Monto entero mayor que 0" : "Monto mayor que 0";
+
+    protected override void OnInitialized()
+    {
+        _precioDesde = HoyDt;
+        _ofertaDesde = HoyDt;
+        if (Pendientes?.Precio is { } p)
+        {
+            _precio = p.Valor;
+            if (p.Desde is DateOnly d) _precioDesde = d.ToDateTime(TimeOnly.MinValue);
+        }
+        _anularProgramado = Pendientes?.Anular is not null;
+        if (Pendientes?.Terminar is not null) _modoOferta = "quitar";
+        if (Pendientes?.Oferta is { } o)
+        {
+            _modoOferta = "nueva";
+            _ofertaPrecio = o.PrecioOferta;
+            _ofertaPct = o.PctDescuento;
+            if (o.Desde is DateOnly od) _ofertaDesde = od.ToDateTime(TimeOnly.MinValue);
+            _ofertaHasta = o.Hasta?.ToDateTime(TimeOnly.MinValue);
+        }
+    }
+
+    // Referencia de la oferta: el precio nuevo si rige a más tardar cuando empieza la oferta; si no, el vigente.
+    private decimal? Referencia
+    {
+        get
+        {
+            var desdeOferta = _ofertaDesde ?? HoyDt;
+            if (_precio is decimal p && PreciosUi.MontoValido(p, Decimales) && (_precioDesde ?? HoyDt) <= desdeOferta) return p;
+            return Fila.Oficial?.Valor;
+        }
+    }
+
+    private void OnOfertaPrecio(decimal? v)
+    {
+        _ofertaPrecio = v;
+        _ofertaPct = v is decimal p && Referencia is decimal r ? PreciosUi.PctDesdePrecio(r, p) : null;
+    }
+
+    private void OnOfertaPct(decimal? v)
+    {
+        _ofertaPct = v;
+        _ofertaPrecio = v is decimal pct and >= 1 and <= 99 && Referencia is decimal r ? PreciosUi.PrecioDesdePct(r, pct, Decimales) : null;
+    }
+
+    private void Atajo(int dias) => _ofertaHasta = (_ofertaDesde ?? HoyDt).AddDays(dias - 1);
+    private void AtajoFinDeMes() => _ofertaHasta = PreciosUi.FinDeMes(DateOnly.FromDateTime(_ofertaDesde ?? HoyDt)).ToDateTime(TimeOnly.MinValue);
+
+    private string? ErrorOferta
+    {
+        get
+        {
+            if (_modoOferta != "nueva") return null;
+            if (Referencia is null) return "La variante necesita un precio oficial para tener oferta.";
+            if (_ofertaPrecio is null) return "Indique el precio de oferta o el % de descuento.";
+            if (!PreciosUi.MontoValido(_ofertaPrecio, Decimales)) return MensajeMonto;
+            if (_ofertaPrecio >= Referencia) return $"La oferta debe ser menor que {FormatoCl.Moneda(Referencia)}.";
+            if (_ofertaHasta is DateTime h && h < (_ofertaDesde ?? HoyDt)) return "La fecha de término no puede ser anterior al inicio.";
+            return null;
+        }
+    }
+
+    private bool PrecioValido => _precio is null || PreciosUi.MontoValido(_precio, Decimales);
+
+    private bool PuedeAceptar => PrecioValido && ErrorOferta is null
+        && (_precio is not null || _anularProgramado || _modoOferta != "igual" || (Pendientes?.Cantidad ?? 0) > 0);
+
+    private void Cancelar() => MudDialog.Cancel();
+
+    private void Aceptar()
+    {
+        var cambios = new List<CambioPrecioDto>();
+        if (_anularProgramado && Fila.Programado is not null) cambios.Add(PreciosUi.AnularProgramado(Fila));
+        if (_precio is decimal p && p != Fila.Oficial?.Valor)
+            cambios.Add(PreciosUi.NuevoPrecio(Fila, p, Fecha(_precioDesde)));
+        if (_modoOferta == "quitar" && Fila.Oferta is not null) cambios.Add(PreciosUi.TerminarOferta(Fila));
+        if (_modoOferta == "nueva")
+            cambios.Add(PreciosUi.NuevaOferta(Fila, _ofertaPrecio, null, Fecha(_ofertaDesde), _ofertaHasta is DateTime h ? DateOnly.FromDateTime(h) : null));
+        MudDialog.Close(DialogResult.Ok(cambios));
+    }
+
+    // null = «desde hoy» (el servidor usa su propio hoy).
+    private DateOnly? Fecha(DateTime? d) => d is DateTime x && DateOnly.FromDateTime(x) > Hoy ? DateOnly.FromDateTime(x) : null;
+}

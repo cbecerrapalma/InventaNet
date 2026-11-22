@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+<ItemGroup>
+    <PackageReference Include="AutoMapper" />
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Inventa.Data.Async\Inventa.Data.Async.csproj" />
+    <ProjectReference Include="..\Inventa.Domain\Inventa.Domain.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Service\CBP.Services.Async\CBP.Services.Async.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Core\CBP.Results\CBP.Results.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Infraestructure\CBP.Excel\CBP.Excel.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Infraestructure\CBP.Storage\CBP.Storage\CBP.Storage.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Infraestructure\CBP.Storage\CBP.Storage.Imaging\CBP.Storage.Imaging.csproj" />
+  </ItemGroup>
+</Project>
+

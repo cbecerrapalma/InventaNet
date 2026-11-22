@@ -1,0 +1,137 @@
+@* S65.1 filtros de servidor: selects discretos (commit inmediato) + montos como texto
+   con commit al confirmar (enter/blur), nunca por tecla. Sin cultura del hilo: el parseo
+   es FormatoCl.TryParseCantidad ("5.000"/"5,000"/"5000" -> 5000).
+   U6: "Solo ofertas" integrado en la barra, todos los controles misma altura. *@
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Class="store-filter-bar__inner" Spacing="2" data-testid="store-server-filters">
+    <MudSelect T="string" Value="@OrdenActual" ValueChanged="OrdenChanged" Label="Orden" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:220px" Class="store-filters__control store-filter-bar__control" data-testid="store-orden">
+        <MudSelectItem Value="@("defecto")">Predeterminado</MudSelectItem>
+        <MudSelectItem Value="@("precio_asc")">Menor precio</MudSelectItem>
+        <MudSelectItem Value="@("precio_desc")">Mayor precio</MudSelectItem>
+        <MudSelectItem Value="@("descuento_desc")">Mayor descuento</MudSelectItem>
+        <MudSelectItem Value="@("nombre_asc")">Nombre A-Z</MudSelectItem>
+    </MudSelect>
+    <MudSelect T="long?" Value="MarcaActual" ValueChanged="MarcaChanged" Label="Marca" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:220px" Class="store-filters__control store-filter-bar__control" data-testid="store-marca" Disabled="@(Marcas == null || Marcas.Count == 0)">
+        <MudSelectItem T="long?" Value="@((long?)null)">Todas las marcas</MudSelectItem>
+        @if (Marcas != null)
+        {
+            @foreach (var m in Marcas)
+            {
+                <MudSelectItem T="long?" Value="@((long?)m.IdMarca)">@m.Nombre (@m.Cantidad)</MudSelectItem>
+            }
+        }
+    </MudSelect>
+    <MudSwitch T="bool" Value="SoloOfertas" ValueChanged="SoloOfertasChanged" Label="Solo ofertas" Color="Color.Error" Class="store-filter-bar__switch" data-testid="store-offers-toggle" />
+    <MudTextField T="string" Text="@_minTxt" TextChanged="OnMinTyping" Label="Precio mín." Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:150px" Class="store-filters__control store-filter-bar__control" Immediate="true" DebounceInterval="0" aria-label="Precio mínimo" data-testid="store-pmin" @onkeydown="OnMinKey" @onblur="OnMinBlur" />
+    <MudTextField T="string" Text="@_maxTxt" TextChanged="OnMaxTyping" Label="Precio máx." Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:150px" Class="store-filters__control store-filter-bar__control" Immediate="true" DebounceInterval="0" aria-label="Precio máximo" data-testid="store-pmax" @onkeydown="OnMaxKey" @onblur="OnMaxBlur" />
+</MudStack>
+@if (!string.IsNullOrEmpty(_formatoError))
+{
+    <MudText Typo="Typo.caption" Color="Color.Error" Class="mb-4" data-testid="store-price-format-error">@_formatoError</MudText>
+}
+@if (!string.IsNullOrEmpty(PrecioError))
+{
+    <MudText Typo="Typo.caption" Color="Color.Error" Class="mb-4" data-testid="store-price-range-error">@PrecioError</MudText>
+}
+
+@code {
+    [Parameter] public string OrdenActual { get; set; } = "defecto";
+    [Parameter] public EventCallback<string> OrdenChanged { get; set; }
+    [Parameter] public long? MarcaActual { get; set; }
+    [Parameter] public IReadOnlyList<PublicBrandDto>? Marcas { get; set; }
+    [Parameter] public EventCallback<long?> MarcaChanged { get; set; }
+    [Parameter] public decimal? MinActual { get; set; }
+    [Parameter] public decimal? MaxActual { get; set; }
+    [Parameter] public EventCallback<decimal?> MinCommitted { get; set; }
+    [Parameter] public EventCallback<decimal?> MaxCommitted { get; set; }
+    [Parameter] public string? PrecioError { get; set; }
+    [Parameter] public bool SoloOfertas { get; set; }
+    [Parameter] public EventCallback<bool> SoloOfertasChanged { get; set; }
+
+    string _minTxt = "";
+    string _maxTxt = "";
+    decimal? _lastMin;
+    decimal? _lastMax;
+    bool _lastMinSet;
+    bool _lastMaxSet;
+    string? _formatoError;
+
+    protected override void OnParametersSet()
+    {
+        if (!_lastMinSet || _lastMin != MinActual)
+        {
+            _lastMin = MinActual;
+            _lastMinSet = true;
+            _minTxt = MinActual.HasValue ? FormatoCl.Cantidad(MinActual.Value) : "";
+        }
+        if (!_lastMaxSet || _lastMax != MaxActual)
+        {
+            _lastMax = MaxActual;
+            _lastMaxSet = true;
+            _maxTxt = MaxActual.HasValue ? FormatoCl.Cantidad(MaxActual.Value) : "";
+        }
+    }
+
+    void OnMinTyping(string v) => _minTxt = v ?? "";
+    void OnMaxTyping(string v) => _maxTxt = v ?? "";
+
+    async Task OnMinKey(KeyboardEventArgs e)
+    {
+        if (string.Equals(e.Key, "Enter", StringComparison.OrdinalIgnoreCase))
+            await CommitMinAsync();
+    }
+
+    async Task OnMaxKey(KeyboardEventArgs e)
+    {
+        if (string.Equals(e.Key, "Enter", StringComparison.OrdinalIgnoreCase))
+            await CommitMaxAsync();
+    }
+
+    Task OnMinBlur(FocusEventArgs _) => CommitMinAsync();
+    Task OnMaxBlur(FocusEventArgs _) => CommitMaxAsync();
+
+    async Task CommitMinAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_minTxt))
+        {
+            _formatoError = null;
+            _lastMin = null;
+            await MinCommitted.InvokeAsync(null);
+            return;
+        }
+        if (!FormatoCl.TryParseCantidad(_minTxt, out var v))
+        {
+            _formatoError = "Monto no válido.";
+            _minTxt = _lastMin.HasValue ? FormatoCl.Cantidad(_lastMin.Value) : "";
+            return;
+        }
+        _formatoError = null;
+        var n = FormatoCl.NormalizarCantidad(v);
+        _minTxt = FormatoCl.Cantidad(n);
+        if (_lastMin == n) return;
+        _lastMin = n;
+        await MinCommitted.InvokeAsync(n);
+    }
+
+    async Task CommitMaxAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_maxTxt))
+        {
+            _formatoError = null;
+            _lastMax = null;
+            await MaxCommitted.InvokeAsync(null);
+            return;
+        }
+        if (!FormatoCl.TryParseCantidad(_maxTxt, out var v))
+        {
+            _formatoError = "Monto no válido.";
+            _maxTxt = _lastMax.HasValue ? FormatoCl.Cantidad(_lastMax.Value) : "";
+            return;
+        }
+        _formatoError = null;
+        var n = FormatoCl.NormalizarCantidad(v);
+        _maxTxt = FormatoCl.Cantidad(n);
+        if (_lastMax == n) return;
+        _lastMax = n;
+        await MaxCommitted.InvokeAsync(n);
+    }
+}

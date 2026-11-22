@@ -1,0 +1,115 @@
+@page "/ventas/{Id}"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Ventas.VentasApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@implements IDisposable
+
+<PageHeader Title="Detalle Venta" Description="Detalle de venta." Icon="@Icons.Material.Filled.Receipt" />
+
+@if (!_checked){<LoadingState />}
+else if (!_allowed){<Forbidden />}
+else if (_loading){<LoadingState Message="Cargando venta..." />}
+else if (_error is not null){<ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Reload" />}
+else if (_venta is null){<MudAlert Severity="Severity.Warning" Class="mb-3">Venta no encontrada.</MudAlert><MudButton Color="Color.Primary" Href="/ventas" StartIcon="@Icons.Material.Filled.ArrowBack">Volver</MudButton>}
+else
+{
+    <MudPaper Class="pa-4 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="2" Class="mb-3">
+            <MudText Typo="Typo.h6" Style="overflow-wrap:anywhere">@_venta.NumVenta <MudChip T="string" Size="Size.Small" Color="@EstadoColor(_venta.Estado)" Class="ml-2">@EstadoNombre(_venta.Estado)</MudChip></MudText>
+            @if (_venta.Estado==1 && _canAnular){<MudButton Color="Color.Error" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Block" OnClick="OpenAnular" aria-label="Anular venta">Anular</MudButton>}
+        </MudStack>
+        @if (_venta.Estado==2){<MudAlert Severity="Severity.Error" Class="mb-3" Variant="Variant.Outlined">Anulada el @FormatoCl.FechaHora(_venta.FecAnulacion) — Motivo: @_venta.MotivoAnulacion</MudAlert>}
+        <MudGrid Spacing="3" data-testid="ficha-venta">
+            <MudItem xs="6" md="3"><MudText Typo="Typo.caption" Color="Color.Secondary">Fecha</MudText><MudText>@FormatoCl.FechaHora(_venta.FecVenta)</MudText></MudItem>
+            <MudItem xs="6" md="3"><MudText Typo="Typo.caption" Color="Color.Secondary">Documento</MudText><MudText>@TipoNombre(_venta.TipoDoc)</MudText></MudItem>
+            <MudItem xs="6" md="3"><MudText Typo="Typo.caption" Color="Color.Secondary">Cliente</MudText><MudText>@(_venta.ClienteNombre ?? "—")</MudText></MudItem>
+            <MudItem xs="6" md="3"><MudText Typo="Typo.caption" Color="Color.Secondary">Bodega</MudText><MudText>@_venta.BodegaNombre</MudText></MudItem>
+            <MudItem xs="6" md="3"><MudText Typo="Typo.caption" Color="Color.Secondary">Subtotal</MudText><MudText>@FormatoCl.Moneda(_venta.SubTotal)</MudText></MudItem>
+            <MudItem xs="6" md="3"><MudText Typo="Typo.caption" Color="Color.Secondary">Descuento</MudText><MudText>@FormatoCl.Moneda(_venta.Descuento)</MudText></MudItem>
+            <MudItem xs="6" md="3"><MudText Typo="Typo.caption" Color="Color.Secondary">Impuesto</MudText><MudText>@FormatoCl.Moneda(_venta.Impuesto)</MudText></MudItem>
+            <MudItem xs="6" md="3"><MudText Typo="Typo.caption" Color="Color.Secondary"><b>Total</b></MudText><MudText Typo="Typo.subtitle2">@FormatoCl.Moneda(_venta.Total)</MudText></MudItem>
+        </MudGrid>
+        @if (!_canAnular && _venta.Estado==1){<MudAlert Severity="Severity.Info" Class="mt-3" Variant="Variant.Outlined">No tienes permiso para anular ventas.</MudAlert>}
+    </MudPaper>
+
+    <MudText Typo="Typo.h6" Class="mb-2">Productos (@FormatoCl.Miles(_venta.Detalles.Count))</MudText>
+    @if (_venta.Detalles.Count==0){<MudAlert Severity="Severity.Info" Class="mb-3">Sin productos.</MudAlert>}
+    else
+    {
+        <MudTable Items="@_venta.Detalles" Dense="true" Hover="true" Striped="true" Bordered="true" Elevation="0" Class="mb-3 inv-tabla-compacta inv-tabla-tarjeta" data-testid="tabla-venta-lineas">
+            <HeaderContent>
+                <MudTh>#</MudTh><MudTh>Producto</MudTh><MudTh>Variante</MudTh><MudTh>Cant.</MudTh><MudTh>Precio</MudTh><MudTh>Costo</MudTh><MudTh>Desc.</MudTh><MudTh>Subtotal</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="#" HideSmall="true">@context.NumLinea</MudTd>
+                <MudTd DataLabel="Producto" Class="inv-celda-titulo"><div><MudLink Href="@($"/productos/{context.IdProd}")">@context.ProdNombre</MudLink><MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block">@context.ProdCodigo</MudText></div></MudTd>
+                <MudTd DataLabel="Variante">@context.VarNombre</MudTd>
+                <MudTd DataLabel="Cant.">@FormatoCl.Cantidad(context.Cantidad)</MudTd>
+                <MudTd DataLabel="Precio">@FormatoCl.Moneda(context.PrecioUnitario)</MudTd>
+                <MudTd DataLabel="Costo">@FormatoCl.Moneda(context.CostoUnitario)</MudTd>
+                <MudTd DataLabel="Desc.">@FormatoCl.Moneda(context.Descuento)</MudTd>
+                <MudTd DataLabel="Subtotal">@FormatoCl.Moneda(context.Subtotal)</MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+
+    <MudText Typo="Typo.h6" Class="mb-2">Pagos (@FormatoCl.Miles(_venta.Pagos.Count))</MudText>
+    @if (_venta.Pagos.Count==0){<MudAlert Severity="Severity.Info" Class="mb-3">Sin pagos.</MudAlert>}
+    else
+    {
+        <MudTable Items="@_venta.Pagos" Dense="true" Hover="true" Striped="true" Bordered="true" Elevation="0" Class="mb-3 inv-tabla-compacta inv-tabla-tarjeta" data-testid="tabla-venta-pagos">
+            <HeaderContent>
+                <MudTh>Método</MudTh><MudTh>Monto</MudTh><MudTh>Referencia</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Método" Class="inv-celda-titulo">@context.MetodoNombre</MudTd>
+                <MudTd DataLabel="Monto">@FormatoCl.Moneda(context.Monto)</MudTd>
+                <MudTd DataLabel="Referencia">@(string.IsNullOrWhiteSpace(context.Referencia)? "—" : context.Referencia)</MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" Href="/ventas" Class="mt-3">Volver al listado</MudButton>
+}
+
+@code{
+    [Parameter] public string? Id{get;set;}
+    [CascadingParameter] public Inventa.Web.Shared.MigaContexto? Miga { get; set; }
+    private bool _checked,_allowed,_canAnular; private bool _loading=true; private Inventa.Web.Models.Api.ApiError? _error;
+    private Inventa.Web.Models.Ventas.VentaDto? _venta;
+    private CancellationTokenSource? _cts;
+    protected override async Task OnInitializedAsync(){
+        _allowed=await PermsService.HasPermissionAsync("INVENTA_VENTAS_DETALLE_VER");
+        _canAnular=await PermsService.HasPermissionAsync("INVENTA_VENTAS_DETALLE_ANULAR");
+        _checked=true; if(!_allowed) return;
+        TenantCtx.OnTenantChanged+=OnTenantChanged; await LoadAsync();
+    }
+    private void OnTenantChanged(int? localId, int? passPlatId){ _ = OnTenantChangedAsync(localId); }
+    private async Task OnTenantChangedAsync(int? localId){ _venta=null; await InvokeAsync(async()=>{_loading=true; StateHasChanged(); await LoadAsync(); StateHasChanged();}); }
+    private async Task LoadAsync(){
+        if(!long.TryParse(Id,out var id)){_venta=null; _loading=false; return;}
+        _cts?.Cancel(); _cts=new CancellationTokenSource(); var ct=_cts.Token;
+        _loading=true; _error=null; StateHasChanged();
+        try{
+            _venta=await Svc.GetAsync(id, ct);
+            Miga?.Definir($"/ventas/{id}", _venta?.NumVenta);
+        }catch(Inventa.Web.Models.Api.ApiException ex){
+            if(ex.StatusCode==404) _venta=null;
+            else { _error=ex.ToApiError(); if(ex.StatusCode==401) Snackbar.Add("Sesión expirada",Severity.Warning); }
+        }catch(OperationCanceledException){} catch(Exception ex){ _error=new(){StatusCode=0, Title="Error", Detail=ex.Message};}
+        finally{ _loading=false; StateHasChanged(); }
+    }
+    private async Task Reload()=> await LoadAsync();
+    private string EstadoNombre(byte e)=> e==1? "Completada" : e==2? "Anulada" : $"Estado {e}";
+    private Color EstadoColor(byte e)=> e==1? Color.Success : e==2? Color.Error : Color.Default;
+    private string TipoNombre(byte t)=> t switch{1=>"Boleta",2=>"Factura",3=>"Nota de venta", _=>$"Tipo {t}"};
+    private async Task OpenAnular(){
+        if(_venta is null) return;
+        var pars=new DialogParameters{ ["VentaId"]=_venta.IdVenta };
+        var dlg=await Dialogs.ShowAsync<Inventa.Web.Shared.Sales.AnularVentaDialog>("Anular venta", pars, new DialogOptions{ MaxWidth=MaxWidth.Medium, FullWidth=true });
+        var r=await dlg.Result; if(r is not null && !r.Canceled) await LoadAsync();
+    }
+    public void Dispose(){ TenantCtx.OnTenantChanged-=OnTenantChanged; _cts?.Cancel(); _cts?.Dispose(); }
+}

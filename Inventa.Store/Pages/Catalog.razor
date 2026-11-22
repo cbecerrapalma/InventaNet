@@ -1,0 +1,427 @@
+@page "/"
+@using Inventa.Store.Components
+@using Inventa.Store.Models
+@inject CatalogApiService Api
+@inject StorefrontState SfState
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>@GetPageTitle()</PageTitle>
+<HeadContent>
+    @if (!string.IsNullOrWhiteSpace(_profile?.DescripcionCorta))
+    {
+        <meta name="description" content="@_profile.DescripcionCorta" />
+    }
+</HeadContent>
+
+@* S57.1 storefront hero: profile-driven. S57.5: no invented slogans — subtitle renders only when DescripcionCorta exists. *@
+@* S111 D1: el hero solo en la portada; con búsqueda, categoría, filtros o página > 1 va la cabecera de resultados. *@
+@if (EsHome)
+{
+<div class="store-hero pa-4" data-testid="store-hero">
+    <MudContainer MaxWidth="MaxWidth.Large" Style="max-width:var(--store-container-max);">
+        @if (!string.IsNullOrWhiteSpace(_profile?.LogoUrl))
+        {
+            <img src="@_profile.LogoUrl" alt="@_title" style="height:48px;max-width:240px;object-fit:contain;" class="mb-2" data-testid="store-hero-logo" />
+        }
+        <MudText Typo="Typo.h4" Style="font-weight:600;letter-spacing:.01em;font-size:clamp(1.5rem, 1.1rem + 2vw, 2.5rem);" Class="mb-2" HtmlTag="h1" data-testid="store-hero-title">@_title</MudText>
+        @if (!string.IsNullOrWhiteSpace(_profile?.DescripcionCorta))
+        {
+            <MudText Typo="Typo.body1" Color="Color.Secondary" data-testid="store-hero-subtitle">@_profile.DescripcionCorta</MudText>
+        }
+        <MudStack Row="true" Spacing="2" Class="mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="#productos" data-testid="store-hero-cta">Ver productos</MudButton>
+        </MudStack>
+    </MudContainer>
+</div>
+}
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4" Style="max-width:var(--store-container-max);">
+    @if (!EsHome)
+    {
+        <MudText Typo="Typo.h5" HtmlTag="h1" Style="font-weight:600;" Class="mb-1" data-testid="store-results-title">@TituloResultados()</MudText>
+        @if (!_loading && _error is null)
+        {
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3" data-testid="store-results-count">@FormatoCl.Miles(_totalCount) @(_totalCount == 1 ? "producto" : "productos")</MudText>
+        }
+    }
+    @* S71 chips: solo raíces; segunda fila de hijas + breadcrumb al seleccionar. *@
+    @if (_raices.Count > 0 && !EsHome)
+    {
+        <MudText Typo="Typo.h6" Style="font-weight:600;" Class="mb-2" HtmlTag="h2" id="categorias" data-testid="store-categories-title">Categorías</MudText>
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" Class="mb-2" data-testid="store-categories">
+            <MudChip T="long?" OnClick="@(() => OnCatChanged(null))" Selected="@(_cat == null)" Variant="Variant.Outlined" data-testid="store-cat-all">Todas</MudChip>
+            @foreach (var c in _raices)
+            {
+                <MudChip T="long?" OnClick="@(() => OnCatChanged(c.Id))" Selected="@EsRaizActiva(c)" Variant="Variant.Outlined" data-testid="store-cat-chip">@c.Nombre (@CantidadFmt(c.Cantidad))</MudChip>
+            }
+        </MudStack>
+        @if (_raizSel is not null && _raizSel.Hijos.Count > 0)
+        {
+            <nav aria-label="Migas de categoría" class="store-crumbs" data-testid="store-breadcrumb">
+                <a href="/" class="store-crumbs__link">Inicio</a>
+                <span aria-hidden="true"> › </span>
+                <a href="@($"/?cat={_raizSel.Id}")" class="store-crumbs__link">@_raizSel.Nombre</a>
+                @if (_catSel is not null && _catSel.Id != _raizSel.Id)
+                {
+                    <span aria-hidden="true"> › </span>
+                    <span aria-current="page">@_catSel.Nombre</span>
+                }
+            </nav>
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" Class="mb-4" data-testid="store-subcategories">
+                <MudChip T="string" Variant="Variant.Filled" Selected="@(_cat == _raizSel.Id)" OnClick="@(() => OnCatChanged(_raizSel.Id))" data-testid="store-subcat-chip">Todo @_raizSel.Nombre</MudChip>
+                @foreach (var h in _raizSel.Hijos)
+                {
+                    <MudChip T="string" Variant="Variant.Outlined" Selected="@(_cat == h.Id)" OnClick="@(() => OnCatChanged(h.Id))" data-testid="store-subcat-chip">@h.Nombre (@CantidadFmt(h.Cantidad))</MudChip>
+                }
+            </MudStack>
+        }
+    }
+
+    @* S71 home por secciones: solo sin filtros y en página 1; con filtros es el listado actual. *@
+    @if (EsHome)
+    {
+        <HomeSections Raices="@_raices" Ofertas="@_ofertas" Marcas="@(_brands ?? [])" Moneda="@SfState.Moneda" CargandoOfertas="@_ofertasLoading" ImagenesCategorias="@_catImagenes" />
+    }
+
+    @* S65.1 barra de filtros unificada: orden + marca + solo ofertas + rango de precio. *@
+    @* S111 D2: bajo 600 px la barra se pliega tras el botón «Filtros» (solo CSS la oculta: los controles siguen en el DOM). *@
+    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Tune" Class="store-filter-toggle mb-2" OnClick="@(() => _filtrosAbiertos = !_filtrosAbiertos)" aria-expanded="@(_filtrosAbiertos ? "true" : "false")" data-testid="store-filter-toggle">@(_filtrosAbiertos ? "Ocultar filtros" : "Filtros" + ContadorFiltros())</MudButton>
+    <div class="@(_filtrosAbiertos ? "store-filter-bar" : "store-filter-bar store-filter-bar--cerrado")" data-testid="store-filter-bar">
+        <CatalogFilters OrdenActual="@_orden" OrdenChanged="OnOrdenChanged"
+                        MarcaActual="_marca" Marcas="_brands" MarcaChanged="OnMarcaChanged"
+                        MinActual="_pmin" MaxActual="_pmax"
+                        MinCommitted="OnPminChanged" MaxCommitted="OnPmaxChanged"
+                        PrecioError="@_precioError"
+                        SoloOfertas="@_soloOfertas" SoloOfertasChanged="OnOfertasChanged" />
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-2">
+            @if (HasActiveFilters())
+            {
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ClearFilters" data-testid="store-clear-filters">Limpiar filtros</MudButton>
+            }
+        </MudStack>
+    </div>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-4" data-testid="store-loading" />
+        <MudGrid Spacing="3" data-testid="store-skeleton">
+            @for (int i = 0; i < 8; i++)
+            {
+                <MudItem xs="6" sm="6" md="4" lg="3"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="280px" /></MudItem>
+            }
+        </MudGrid>
+    }
+    else if (_error != null)
+    {
+        if (_is503)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-4 d-flex flex-column align-center" data-testid="store-error-503">
+                <MudText Typo="Typo.h6" Class="mb-2" HtmlTag="h2">@_error</MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RetryAsync" data-testid="store-retry-button">Reintentar</MudButton>
+            </MudAlert>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-4" data-testid="store-error">@_error</MudAlert>
+        }
+    }
+    else if (_profileLoaded && _profile == null)
+    {
+        @* S57.3 P4.2 state 2: storefront NOT published (204) — distinct from service error and from zero-products. *@
+        <MudPaper Elevation="0" Class="pa-8 d-flex flex-column align-center justify-center" Style="min-height:260px;border:1px dashed #e0e0e0;" data-testid="store-not-configured">
+            <MudIcon Icon="@Icons.Material.Filled.Storefront" Size="Size.Large" Color="Color.Secondary" Class="mb-2" />
+            <MudText Typo="Typo.h6" Class="mb-1" HtmlTag="h2">Tienda en preparación.</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Align="Align.Center">Esta tienda aún no ha sido publicada por el negocio. Vuelve pronto.</MudText>
+        </MudPaper>
+    }
+    else if (_items.Count == 0)
+    {
+        @* S57.5 P6: published-but-empty ("preparing") vs filtered-empty ("adjust filters") — never error/connection copy. *@
+        <MudPaper Elevation="0" Class="pa-8 d-flex flex-column align-center justify-center" Style="min-height:260px;border:1px dashed #e0e0e0;" data-testid="store-empty">
+            <MudIcon Icon="@Icons.Material.Filled.SearchOff" Size="Size.Large" Color="Color.Secondary" Class="mb-2" />
+            @if (!HasActiveFilters())
+            {
+                <MudText Typo="Typo.h6" Class="mb-1" HtmlTag="h2">Estamos preparando nuestro catálogo.</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Align="Align.Center">Muy pronto encontrarás aquí nuestros productos.</MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.h6" Class="mb-1" HtmlTag="h2">Sin productos publicados por el momento.</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Align="Align.Center">Intenta ajustar los filtros o buscar con otros términos.</MudText>
+            }
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Mostrando @FormatoCl.Miles(0) de @FormatoCl.Miles(_totalCount) productos</MudText>
+        </MudPaper>
+    }
+    else
+    {
+        @* S57.5 P4.4: neutral section title (no invented "Destacados"/ranking). *@
+        @if (EsHome)
+        {
+            <MudText Typo="Typo.h6" Style="font-weight:600;" Class="mb-2" HtmlTag="h2" id="productos" data-testid="store-products-title">Productos</MudText>
+        }
+        <MudGrid Spacing="3" Class="mb-4" data-testid="store-product-grid">
+            @foreach (var p in _items)
+            {
+                <MudItem xs="6" sm="6" md="4" lg="3">
+                    <ProductCard Producto="p" Moneda="@SfState.Moneda" />
+                </MudItem>
+            }
+        </MudGrid>
+        <MudStack Row="true" Justify="Justify.Center" Class="mb-6" data-testid="store-pagination">
+            <MudPagination Count="_totalPages" Selected="_page" SelectedChanged="OnPageChanged" Color="Color.Primary" BoundaryCount="1" MiddleCount="1" data-testid="store-pagination-control" />
+        </MudStack>
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Align="Align.Center" Class="mb-6" data-testid="store-pagination-info">Mostrando @FormatoCl.Miles(_items.Count) de @FormatoCl.Miles(_totalCount) productos - página @FormatoCl.Miles(_page) de @FormatoCl.Miles(_totalPages)</MudText>
+    }
+</MudContainer>
+
+@code {
+    // S62.4 el header y el menú filtran vía URL; la página sincroniza su estado con ella.
+    // S64: los filtros de servidor también viven en la URL (compartible).
+    // S65.1 miles es-CL en conteos ("1768" -> "1.768", S93.2: FormatoCl).
+    [SupplyParameterFromQuery(Name = "q")] public string? QueryQ { get; set; }
+    [SupplyParameterFromQuery(Name = "cat")] public long? QueryCat { get; set; }
+    [SupplyParameterFromQuery(Name = "ofertas")] public bool? QueryOfertas { get; set; }
+    [SupplyParameterFromQuery(Name = "orden")] public string? QueryOrden { get; set; }
+    [SupplyParameterFromQuery(Name = "marca")] public long? QueryMarca { get; set; }
+    [SupplyParameterFromQuery(Name = "pmin")] public decimal? QueryPmin { get; set; }
+    [SupplyParameterFromQuery(Name = "pmax")] public decimal? QueryPmax { get; set; }
+    bool _paramsApplied;
+    bool _filtrosAbiertos;
+    string? _q;
+    long? _cat;
+    bool _soloOfertas;
+    string _orden = "defecto";
+    long? _marca;
+    decimal? _pmin;
+    decimal? _pmax;
+    bool _loading = true;
+    string? _error;
+    bool _is503;
+    List<PublicProductDto> _items = new();
+    IReadOnlyList<PublicCategoryDto>? _cats;
+    // S71 raíces del árbol (chips + home + breadcrumb); _cats se conserva como payload crudo.
+    IReadOnlyList<CategoryNode> _raices = [];
+    IReadOnlyDictionary<long, string?> _catImagenes = new Dictionary<long, string?>();
+    CategoryNode? _raizSel => CategoryTree.RaizDe(_raices, _cat);
+    CategoryNode? _catSel => CategoryTree.Buscar(_raices, _cat);
+    bool EsRaizActiva(CategoryNode r) => _cat == r.Id || r.Hijos.Any(h => h.Id == _cat);
+    string CantidadFmt(int? c) => FormatoCl.Miles(c ?? 0);
+    // S71 ofertas de la home (una sola petición, sin orden: D3 documenta el 500 con orden).
+    List<PublicProductDto> _ofertas = new();
+    bool _ofertasLoading;
+    bool _ofertasRequested;
+    bool EsHome => !HasActiveFilters() && _page == 1;
+    IReadOnlyList<PublicBrandDto>? _brands;
+    PublicStorefrontDto? _profile;
+    bool _profileLoaded;
+    string _title = "Catálogo";
+    int _page = 1;
+    int _pageSize = 20;
+    int _totalCount;
+    int _totalPages = 1;
+    CancellationTokenSource? _cts;
+    int _gen;
+
+    // S111 D1: título de la cabecera de resultados (búsqueda > categoría > ofertas > productos).
+    string TituloResultados()
+    {
+        if (!string.IsNullOrWhiteSpace(_q)) return $"Resultados para «{_q}»";
+        if (_cat.HasValue) return _catSel?.Nombre ?? _raizSel?.Nombre ?? "Categoría";
+        if (_soloOfertas) return "Ofertas";
+        return "Productos";
+    }
+
+    // S111 D2: cuántos filtros de la barra están activos, para el botón «Filtros (n)».
+    string ContadorFiltros()
+    {
+        var n = (_soloOfertas ? 1 : 0) + (string.Equals(_orden, "defecto", StringComparison.Ordinal) ? 0 : 1)
+            + (_marca.HasValue ? 1 : 0) + (_pmin.HasValue ? 1 : 0) + (_pmax.HasValue ? 1 : 0);
+        return n > 0 ? $" ({n})" : "";
+    }
+
+    static readonly HashSet<string> Ordenes = new(StringComparer.OrdinalIgnoreCase)
+        { "defecto", "precio_asc", "precio_desc", "descuento_desc", "nombre_asc" };
+    static string NormalizaOrden(string? o) =>
+        !string.IsNullOrWhiteSpace(o) && Ordenes.Contains(o.Trim()) ? o.Trim().ToLowerInvariant() : "defecto";
+
+    string GetPageTitle()
+    {
+        var parts = new List<string>();
+        if (_cat.HasValue)
+        {
+            var catName = _catSel?.Nombre ?? _raizSel?.Nombre;
+            if (!string.IsNullOrWhiteSpace(catName)) parts.Add(catName);
+        }
+        else if (HasActiveFilters())
+        {
+            parts.Add("Resultados");
+        }
+        else
+        {
+            parts.Add("Productos");
+        }
+        parts.Add(_title);
+        return string.Join(" | ", parts);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // U12: NO cargar categorías aquí - las carga MainLayout y se comparten via StorefrontState
+        // Solo cargar perfil y marcas
+        try { _brands = await Api.GetBrandsAsync(); } catch { }
+        try
+        {
+            _profile = await SfState.GetAsync();
+            _title = SfState.DisplayName(_profile);
+        }
+        catch { }
+        finally { _profileLoaded = true; }
+        // S101: las categorías puede cargarlas el layout después del primer render.
+        SfState.CategoriasChanged += OnCategoriasChanged;
+        CargarCategoriasDeEstado();
+        // S62.4 la carga inicial ocurre en OnParametersSetAsync (una sola vez).
+    }
+
+    void OnCategoriasChanged() => _ = InvokeAsync(() =>
+    {
+        CargarCategoriasDeEstado();
+        StateHasChanged();
+    });
+
+    void CargarCategoriasDeEstado()
+    {
+        // U12: categorias ya vienen del layout
+        if (!SfState.CategoriasCargadas) return;
+        _cats = SfState.CategoriasRaw;
+        _raices = CategoryTree.Build(_cats);
+        try
+        {
+            var dict = new Dictionary<long, string?>();
+            if (_cats is not null)
+                foreach (var c in _cats)
+                    if (!string.IsNullOrWhiteSpace(c.ImagenUrl))
+                        dict[c.IdCategoria] = SfState.ResolveAssetUrl(c.ImagenUrl);
+            _catImagenes = dict;
+        }
+        catch { }
+    }
+
+    public void Dispose() => SfState.CategoriasChanged -= OnCategoriasChanged;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var q = string.IsNullOrWhiteSpace(QueryQ) ? null : QueryQ.Trim();
+        var orden = NormalizaOrden(QueryOrden);
+        var changed = !_paramsApplied ||
+            !string.Equals(q, _q, StringComparison.Ordinal) || QueryCat != _cat ||
+            (QueryOfertas ?? false) != _soloOfertas || !string.Equals(orden, _orden, StringComparison.Ordinal) ||
+            QueryMarca != _marca || QueryPmin != _pmin || QueryPmax != _pmax;
+        if (!changed) return;
+        _paramsApplied = true;
+        _q = q; _cat = QueryCat; _soloOfertas = QueryOfertas ?? false; _orden = orden;
+        _marca = QueryMarca; _pmin = QueryPmin; _pmax = QueryPmax; _page = 1;
+        await LoadAsync();
+    }
+
+    async Task LoadAsync()
+    {
+        _loading = true; _error = null; _is503 = false; var gen = ++_gen; _cts?.Cancel(); _cts = new CancellationTokenSource();
+        try
+        {
+            var res = await Api.GetProductsAsync(_q, _page, _pageSize, _cat, _soloOfertas, _pmin, _pmax, _marca, _orden, _cts.Token);
+            if (gen != _gen) return;
+            if (res == null) { _error = "No se pudo cargar el catálogo (servicio no disponible)"; _items.Clear(); }
+            else
+            {
+                _items = res.Items.ToList();
+                _totalCount = res.TotalCount; _totalPages = Math.Max(1, res.TotalPages);
+            }
+        }
+        catch (OperationCanceledException) { return; }
+        catch (System.Net.Http.HttpRequestException ex) when (gen == _gen)
+        {
+            if (ex.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable)
+            {
+                _is503 = true;
+                _error = "El catálogo no está disponible en este momento.";
+            }
+            else
+            {
+                _error = "Error cargando catálogo.";
+            }
+        }
+        catch (Exception) when (gen == _gen)
+        {
+            _error = "Error cargando catálogo.";
+        }
+        finally { if (gen == _gen) { _loading = false; StateHasChanged(); } }
+        // S71 la home pide sus ofertas una sola vez (sin bloquear el listado).
+        if (gen == _gen && EsHome && !_ofertasRequested)
+            await LoadOfertasOnceAsync();
+    }
+
+    async Task LoadOfertasOnceAsync()
+    {
+        _ofertasRequested = true; _ofertasLoading = true; StateHasChanged();
+        try
+        {
+            var res = await Api.GetProductsAsync(null, 1, 20, null, soloOfertas: true, precioMin: null, precioMax: null, idMarca: null, orden: "descuento_desc");
+            if (res is not null) _ofertas = res.Items.ToList();
+        }
+        catch { }
+        finally { _ofertasLoading = false; StateHasChanged(); }
+    }
+
+    async Task RetryAsync()
+    {
+        await LoadAsync();
+    }
+
+    // Controles discretos: el estado ya coincide con la URL que se publica,
+    // así OnParametersSetAsync no recarga dos veces.
+    void PushUrl()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_q)) parts.Add($"q={Uri.EscapeDataString(_q)}");
+        if (_cat.HasValue) parts.Add($"cat={_cat}");
+        if (_soloOfertas) parts.Add("ofertas=true");
+        if (!string.Equals(_orden, "defecto", StringComparison.Ordinal)) parts.Add($"orden={Uri.EscapeDataString(_orden)}");
+        if (_marca.HasValue) parts.Add($"marca={_marca}");
+        if (_pmin.HasValue) parts.Add($"pmin={_pmin.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        if (_pmax.HasValue) parts.Add($"pmax={_pmax.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        Nav.NavigateTo(parts.Count == 0 ? "/" : "/?" + string.Join("&", parts));
+    }
+
+    string? _precioError;
+    async Task OnCatChanged(long? v) { _cat = v; _page = 1; PushUrl(); await LoadAsync(); }
+    async Task OnPageChanged(int p) { _page = p; await LoadAsync(); }
+    async Task OnOfertasChanged(bool v) { _soloOfertas = v; _page = 1; PushUrl(); await LoadAsync(); }
+    async Task OnOrdenChanged(string v) { _orden = NormalizaOrden(v); _page = 1; PushUrl(); await LoadAsync(); }
+    async Task OnMarcaChanged(long? v) { _marca = v; _page = 1; PushUrl(); await LoadAsync(); }
+    // S65.1 el rango se valida antes de navegar: mín>máx muestra mensaje y no publica URL ni recarga.
+    async Task OnPminChanged(decimal? v)
+    {
+        if (v.HasValue && _pmax.HasValue && v.Value > _pmax.Value)
+        {
+            _precioError = "El precio mínimo no puede ser mayor que el máximo.";
+            return;
+        }
+        _precioError = null;
+        _pmin = v; _page = 1; PushUrl(); await LoadAsync();
+    }
+    async Task OnPmaxChanged(decimal? v)
+    {
+        if (v.HasValue && _pmin.HasValue && v.Value < _pmin.Value)
+        {
+            _precioError = "El precio máximo no puede ser menor que el mínimo.";
+            return;
+        }
+        _precioError = null;
+        _pmax = v; _page = 1; PushUrl(); await LoadAsync();
+    }
+    async Task ClearFilters() { _q = null; _cat = null; _soloOfertas = false; _orden = "defecto"; _marca = null; _pmin = null; _pmax = null; _page = 1; _precioError = null; PushUrl(); await LoadAsync(); }
+    // S57.5 P6: empty-copy depends on whether the visitor filtered (then "adjust filters") or not (then "preparing catalog").
+    bool HasActiveFilters() => !string.IsNullOrWhiteSpace(_q) || _cat != null || _soloOfertas ||
+        !string.Equals(_orden, "defecto", StringComparison.Ordinal) || _marca != null || _pmin != null || _pmax != null;
+}

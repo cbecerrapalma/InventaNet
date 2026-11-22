@@ -1,0 +1,296 @@
+@page "/productos"
+@attribute [Authorize]
+@using CBP.Blazor.Formatting
+@using Inventa.Web.Models.Productos
+@inject Inventa.Web.Services.Productos.ProductosApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject IDialogService Dialogs
+@implements IDisposable
+
+<PageHeader Title="Productos" Description="Administración de productos del tenant actual." Icon="@Icons.Material.Filled.Inventory">
+    <Actions>
+        @if (_canCreate)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreate" aria-label="Nuevo producto">Nuevo producto</MudButton>
+        }
+    </Actions>
+</PageHeader>
+
+@if (!_checked) { <LoadingState /> }
+else if (!_allowed) { <Forbidden /> }
+else
+{
+    @* S112 D5: bajo 600 px los filtros se pliegan tras «Filtros (n)»; la búsqueda queda siempre visible. *@
+    <MudPaper Class="@($"pa-3 mb-3 inv-filtros{(_filtrosAbiertos ? "" : " inv-filtros--cerrado")}")" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)" data-testid="filtros-productos">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" Class="d-sm-none inv-filtros-siempre"><MudButton Variant="Variant.Outlined" Size="Size.Small" FullWidth="true" StartIcon="@Icons.Material.Filled.FilterList" OnClick="@(() => _filtrosAbiertos = !_filtrosAbiertos)" aria-expanded="@(_filtrosAbiertos ? "true" : "false")" data-testid="filtros-toggle">@(_filtrosAbiertos ? "Ocultar filtros" : $"Filtros ({FiltrosActivos})")</MudButton></MudItem>
+            <MudItem xs="12" md="5" Class="inv-filtros-siempre"><MudTextField @bind-Value="_search" Label="Buscar por código, nombre o código de barras" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="OnSearchDebounced" Clearable="true" aria-label="Buscar productos" /></MudItem>
+            <MudItem xs="12" md="3"><MudSelect T="long?" Value="_filtroCat" ValueChanged="OnCatChanged" Label="Categoría" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Dense="true"><MudSelectItem Value="@((long?)null)">Todas</MudSelectItem>@foreach(var c in _categorias){<MudSelectItem Value="@((long?)c.IdCategoria)">@c.Nombre</MudSelectItem>}</MudSelect></MudItem>
+            <MudItem xs="6" md="2"><MudSelect T="bool?" Value="_filtroActivo" ValueChanged="OnActivoChanged" Label="Activo" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Dense="true"><MudSelectItem Value="@((bool?)null)">Todos</MudSelectItem><MudSelectItem Value="@((bool?)true)">Activos</MudSelectItem><MudSelectItem Value="@((bool?)false)">Inactivos</MudSelectItem></MudSelect></MudItem>
+            <MudItem xs="6" md="2" Class="d-flex justify-end align-center"><MudTooltip Text="Actualizar"><MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Default" OnClick="Reload" aria-label="Actualizar" /></MudTooltip><MudSelect T="int" Value="_pageSize" ValueChanged="OnPageSizeChanged" Label="Por página" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="ml-2" Style="max-width:110px"><MudSelectItem Value="20">20</MudSelectItem><MudSelectItem Value="50">50</MudSelectItem><MudSelectItem Value="100">100</MudSelectItem></MudSelect></MudItem>
+            <MudItem xs="12" md="3"><MudSelect T="string" Value="_estado" ValueChanged="OnEstadoChanged" Label="Estado en tienda" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" aria-label="Estado en tienda" data-testid="filtro-estado"><MudSelectItem Value="@("")">Todos</MudSelectItem><MudSelectItem Value="@("Publicado")">Publicado</MudSelectItem><MudSelectItem Value="@("PublicadoConAdvertencia")">Publicado con advertencia</MudSelectItem><MudSelectItem Value="@("Listo")">Listo para publicar</MudSelectItem><MudSelectItem Value="@("Pendiente")">Pendiente</MudSelectItem><MudSelectItem Value="@("Inactivo")">Inactivo</MudSelectItem></MudSelect></MudItem>
+            <MudItem xs="6" md="3"><MudSelect T="string" Value="_fPrecio" ValueChanged="OnFPrecioChanged" Label="Precio" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" data-testid="filtro-precio"><MudSelectItem Value="@("")">Todos</MudSelectItem><MudSelectItem Value="@("con")">Con precio vigente</MudSelectItem><MudSelectItem Value="@("sin")">Sin precio vigente</MudSelectItem></MudSelect></MudItem>
+            <MudItem xs="6" md="3"><MudSelect T="string" Value="_fImagen" ValueChanged="OnFImagenChanged" Label="Imagen" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" data-testid="filtro-imagen"><MudSelectItem Value="@("")">Todos</MudSelectItem><MudSelectItem Value="@("con")">Con imagen</MudSelectItem><MudSelectItem Value="@("sin")">Sin imagen</MudSelectItem></MudSelect></MudItem>
+            <MudItem xs="6" md="3"><MudSelect T="string" Value="_fMarca" ValueChanged="OnFMarcaChanged" Label="Marca" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" data-testid="filtro-marca"><MudSelectItem Value="@("")">Todos</MudSelectItem><MudSelectItem Value="@("con")">Con marca</MudSelectItem><MudSelectItem Value="@("sin")">Sin marca</MudSelectItem></MudSelect></MudItem>
+            @* S57.5 P1.2 primera oleada: atajo de filtros (listo + precio + imagen); publicar sigue siendo producto por producto. *@
+            <MudItem xs="12" Class="d-flex align-center flex-wrap gap-2">
+                <MudButton Variant="@(_firstWave?Variant.Filled:Variant.Outlined)" Color="Color.Info" Size="Size.Small" StartIcon="@Icons.Material.Filled.FilterAlt" OnClick="ApplyFirstWave" aria-label="Primera oleada" data-testid="first-wave-btn">Primera oleada</MudButton>
+                @if (HayFiltros) { <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ClearAllFilters" data-testid="clear-filters-btn">Limpiar filtros</MudButton> }
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@(_firstWave ? "Listos para publicar con precio e imagen. La publicación se confirma producto por producto." : "Los filtros se aplican a todo el catálogo del tenant.")</MudText>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @if (_resumen is { } s)
+    {
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3" data-testid="quality-dashboard">
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClick="ClearAllFilters" data-testid="dash-total">Total: @FormatoCl.Miles(s.Total)</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined" OnClick="@(() => SoloEstado("Publicado"))" data-testid="dash-publicados">Publicados: @FormatoCl.Miles(s.Publicados)</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" OnClick="@(() => SoloEstado("PublicadoConAdvertencia"))" data-testid="dash-advertencia">Con advertencia: @FormatoCl.Miles(s.ConAdvertencia)</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined" OnClick="@(() => SoloEstado("Listo"))" data-testid="dash-listos">Listos: @FormatoCl.Miles(s.Listos)</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => SoloEstado("Pendiente"))" data-testid="dash-pendientes">Pendientes: @FormatoCl.Miles(s.Pendientes)</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => SoloEstado("Inactivo"))" data-testid="dash-inactivos">Inactivos: @FormatoCl.Miles(s.Inactivos)</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => SoloFiltro(precio: "sin"))" data-testid="dash-sinprecio">Sin precio: @FormatoCl.Miles(s.SinPrecio)</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => SoloFiltro(imagen: "sin"))" data-testid="dash-sinimagen">Sin imagen: @FormatoCl.Miles(s.SinImagen)</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => SoloFiltro(marca: "sin"))" data-testid="dash-sinmarca">Sin marca: @FormatoCl.Miles(s.SinMarca)</MudChip>
+        </MudStack>
+    }
+
+    @if (_loading) { <LoadingState Message="Cargando productos..." /> }
+    else if (_error is not null)
+    {
+        <ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Reload" />
+    }
+    else if (_items.Count == 0)
+    {
+        <EmptyState Title="Sin productos" Description="@(HayFiltros ? "No hay resultados para el filtro aplicado." : "No existen productos para este tenant.")" Icon="@Icons.Material.Filled.Inventory">
+            <Action>@if(_canCreate && !HayFiltros){<MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="OpenCreate">Crear producto</MudButton>}</Action>
+        </EmptyState>
+    }
+    else
+    {
+        <MudTable Items="@_items" Dense="true" Hover="true" Striped="true" Elevation="0" Bordered="true" Class="mb-2 inv-tabla-productos inv-tabla-lista" data-testid="tabla-productos">
+            <HeaderContent>
+                <MudTh>Código</MudTh>
+                <MudTh Style="min-width:240px">Nombre</MudTh>
+                <MudTh>Categoría</MudTh>
+                <MudTh>Precio</MudTh>
+                <MudTh>Variantes</MudTh>
+                <MudTh>Estado en tienda</MudTh>
+                <MudTh>Calidad</MudTh>
+                <MudTh>Tienda</MudTh>
+                <MudTh Style="width:120px">Acciones</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Código" Style="white-space:nowrap"><MudLink Href="@($"/productos/{context.IdProd}")" Typo="Typo.body2"><b>@context.Codigo</b></MudLink></MudTd>
+                <MudTd DataLabel="Nombre" Class="inv-celda-titulo"><div>
+                    <MudText Typo="Typo.body2">@context.Nombre</MudText>
+                    @if (!string.IsNullOrWhiteSpace(context.Marca)) { <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Marca</MudText> }
+                </div></MudTd>
+                <MudTd DataLabel="Categoría">@context.Categoria</MudTd>
+                <MudTd DataLabel="Precio">@RangoPrecio(context)</MudTd>
+                <MudTd DataLabel="Variantes" Class="d-none d-sm-table-cell">@FormatoCl.Miles(context.Variantes)</MudTd>
+                <MudTd DataLabel="Estado en tienda">
+                    <MudTooltip Text="@(context.Razones.Count == 0 ? "Sin observaciones" : string.Join(" · ", context.Razones))">
+                        <MudChip T="string" Size="Size.Small" Color="@EstadoTiendaUi.Color(context.Estado)" data-testid="@($"estado-{context.Estado}")">@EstadoTiendaUi.Texto(context.Estado)</MudChip>
+                    </MudTooltip>
+                </MudTd>
+                <MudTd DataLabel="Calidad" Class="d-none d-sm-table-cell">
+                    @{ var qs = QualityScore(context); }
+                    <MudTooltip Text="@qs.Tip"><MudChip T="string" Size="Size.Small" Color="@(qs.Score >= 80 ? Color.Success : qs.Score >= 50 ? Color.Info : Color.Warning)" data-testid="quality-score">@qs.Score</MudChip></MudTooltip>
+                </MudTd>
+                <MudTd DataLabel="Tienda">
+                    @if (_canEdit)
+                    {
+                        <MudSwitch T="bool" Value="context.VisibleStore" ValueChanged="@(async v => await ToggleVisible(context, v))" Color="Color.Success" aria-label="@($"Visible en tienda {context.Codigo}")" />
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="@(context.VisibleStore?Color.Success:Color.Default)">@(context.VisibleStore?"Visible":"Oculto")</MudChip>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Acciones" Class="inv-celda-acciones">
+                    <MudTooltip Text="Ver ficha"><MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary" Href="@($"/productos/{context.IdProd}")" aria-label="@($"Ver ficha {context.Codigo}")" /></MudTooltip>
+                    @if (_canEdit) { <MudTooltip Text="Editar"><MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Default" OnClick="@(()=>OpenEdit(context.IdProd))" aria-label="@($"Editar {context.Codigo}")" /></MudTooltip> }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-2">
+            <MudText Typo="Typo.caption" Color="Color.Secondary" data-testid="paginacion-texto">Mostrando @FormatoCl.Miles(_pageStart+1)–@FormatoCl.Miles(_pageEnd) de @FormatoCl.Miles(_totalCount)</MudText>
+            <MudPagination Count="@_totalPages" SelectedChanged="OnPageChanged" Selected="_page" Color="Color.Primary" BoundaryCount="1" MiddleCount="1" aria-label="Paginación productos" />
+        </MudStack>
+    }
+}
+
+@code {
+    private bool _checked; private bool _allowed; private bool _canCreate; private bool _canEdit;
+    private bool _loading = true;
+    private Inventa.Web.Models.Api.ApiError? _error;
+    private List<ProductoListadoItemDto> _items = [];
+    private List<CategoriaDto> _categorias = [];
+    private ProductoResumenDto? _resumen;
+    private string _search = "";
+    private long? _filtroCat; private bool? _filtroActivo;
+    private string _estado = ""; private string _fPrecio = ""; private string _fImagen = ""; private string _fMarca = "";
+    private bool _firstWave;
+    private bool _filtrosAbiertos;
+    private int FiltrosActivos => (_filtroCat.HasValue ? 1 : 0) + (_filtroActivo.HasValue ? 1 : 0)
+        + (_estado != "" ? 1 : 0) + (_fPrecio != "" ? 1 : 0) + (_fImagen != "" ? 1 : 0) + (_fMarca != "" ? 1 : 0);
+    private int _page = 1; private int _pageSize = 20; private int _totalCount; private int _totalPages = 1;
+    private int _pageStart; private int _pageEnd;
+    private CancellationTokenSource? _cts;
+    private int _loadGen;
+
+    private bool HayFiltros => !string.IsNullOrWhiteSpace(_search) || _filtroCat.HasValue || _filtroActivo.HasValue
+        || _estado != "" || _fPrecio != "" || _fImagen != "" || _fMarca != "" || _firstWave;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allowed = await PermsService.HasPermissionAsync("INVENTA_PRODUCTOS_PRINCIPAL_VER");
+        _canCreate = await PermsService.HasPermissionAsync("INVENTA_PRODUCTOS_PRINCIPAL_CREAR");
+        _canEdit = await PermsService.HasPermissionAsync("INVENTA_PRODUCTOS_PRINCIPAL_EDITAR");
+        _checked = true;
+        if (!_allowed) return;
+        TenantCtx.OnTenantChanged += OnTenantChanged;
+        await Task.WhenAll(LoadAsync(), LoadResumenAsync());
+    }
+    private void OnTenantChanged(int? localId, int? passPlatId){ _ = OnTenantChangedAsync(); }
+    private async Task OnTenantChangedAsync()
+    {
+        _categorias = []; _resumen = null;
+        await InvokeAsync(async () => { ResetFiltros(); await Task.WhenAll(LoadAsync(), LoadResumenAsync()); StateHasChanged(); });
+    }
+    private async Task LoadResumenAsync()
+    {
+        try { _resumen = await Svc.GetResumenAsync(CancellationToken.None); }
+        catch (Inventa.Web.Models.Api.ApiException) { _resumen = null; }
+        catch (HttpRequestException) { _resumen = null; }
+        StateHasChanged();
+    }
+    private async Task LoadAsync()
+    {
+        _cts?.Cancel(); _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        var gen = ++_loadGen;
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            if (_categorias.Count == 0)
+                _categorias = await Svc.GetCategoriasAsync(ct) ?? [];
+            if (gen != _loadGen) return;
+            var paged = await Svc.GetListadoAsync(_search, _estado, _fPrecio, _fImagen, _fMarca, _filtroCat, _filtroActivo, _page, _pageSize, ct);
+            if (ct.IsCancellationRequested || gen != _loadGen) return;
+            _items = paged?.Items.ToList() ?? [];
+            _totalCount = paged?.TotalCount ?? 0;
+            _totalPages = Math.Max(1, paged?.TotalPages ?? 1);
+            if (_page > _totalPages && _totalCount > 0) { _page = _totalPages; await LoadAsync(); return; }
+            _pageStart = _totalCount == 0 ? 0 : (_page - 1) * _pageSize;
+            _pageEnd = Math.Min(_pageStart + _items.Count, _totalCount);
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex)
+        {
+            if (gen != _loadGen) return;
+            _error = ex.ToApiError();
+            if (ex.StatusCode == 401) Snackbar.Add("Sesión expirada", Severity.Warning);
+        }
+        catch (OperationCanceledException) { }
+        catch (HttpRequestException)
+        {
+            if (gen != _loadGen) return;
+            _error = new() { StatusCode = 0, Title = "Sin conexión", Detail = "No se pudo contactar al servidor. Intenta nuevamente." };
+        }
+        finally { if (gen == _loadGen) { _loading = false; StateHasChanged(); } }
+    }
+    private async Task Reload() { _page = 1; await Task.WhenAll(LoadAsync(), LoadResumenAsync()); }
+    private async Task Filtrar() { _page = 1; await LoadAsync(); }
+    private async Task OnSearchDebounced(string v) { _search = v ?? ""; await Filtrar(); }
+    private async Task OnPageChanged(int p) { _page = p; await LoadAsync(); }
+    private async Task OnPageSizeChanged(int s) { _pageSize = s; await Filtrar(); }
+    private async Task OnCatChanged(long? v) { _filtroCat = v; await Filtrar(); }
+    private async Task OnActivoChanged(bool? v) { _filtroActivo = v; await Filtrar(); }
+    private async Task OnEstadoChanged(string v) { _estado = v ?? ""; _firstWave = false; await Filtrar(); }
+    private async Task OnFPrecioChanged(string v) { _fPrecio = v ?? ""; _firstWave = false; await Filtrar(); }
+    private async Task OnFImagenChanged(string v) { _fImagen = v ?? ""; _firstWave = false; await Filtrar(); }
+    private async Task OnFMarcaChanged(string v) { _fMarca = v ?? ""; await Filtrar(); }
+    private void ResetFiltros()
+    {
+        _search = ""; _filtroCat = null; _filtroActivo = null;
+        _estado = _fPrecio = _fImagen = _fMarca = ""; _firstWave = false; _page = 1;
+    }
+    private async Task ClearAllFilters() { ResetFiltros(); await LoadAsync(); }
+    private async Task SoloEstado(string estado) { ResetFiltros(); _estado = estado; await LoadAsync(); }
+    private async Task SoloFiltro(string precio = "", string imagen = "", string marca = "")
+    {
+        ResetFiltros(); _fPrecio = precio; _fImagen = imagen; _fMarca = marca; await LoadAsync();
+    }
+    // S57.5 P1.2 primera oleada: listos para publicar (activo + variante vendible + no visible) con precio e imagen.
+    private async Task ApplyFirstWave()
+    {
+        ResetFiltros(); _firstWave = true; _estado = "Listo"; _fPrecio = "con"; _fImagen = "con"; await LoadAsync();
+    }
+    private static string RangoPrecio(ProductoListadoItemDto p) =>
+        p.PrecioMin is null ? "Sin precio"
+        : p.PrecioMin == p.PrecioMax ? FormatoCl.Moneda(p.PrecioMin)
+        : $"{FormatoCl.Moneda(p.PrecioMin)} – {FormatoCl.Moneda(p.PrecioMax)}";
+    // S57.5 P0.1 calidad derivada (diagnóstico, no regla; pesos S57.5). Código, nombre y categoría son obligatorios en BD.
+    private static (int Score, string Tip) QualityScore(ProductoListadoItemDto d)
+    {
+        int s = 15 + 20 + 15;
+        var parts = new List<string> { "Código +15", "Nombre +20", "Categoría +15" };
+        if (d.TieneMarca) s += 10; parts.Add($"Marca {(d.TieneMarca ? "+10" : "0")}");
+        if (d.Vendible) s += 15; parts.Add($"Variante a la venta {(d.Vendible ? "+15" : "0")}");
+        if (d.TienePrecio) s += 15; parts.Add($"Precio {(d.TienePrecio ? "+15" : "0")}");
+        if (d.TieneImagen) s += 10; parts.Add($"Imagen {(d.TieneImagen ? "+10" : "0")}");
+        return (s, "Diagnóstico, no regla: " + string.Join(" · ", parts));
+    }
+    private async Task OpenCreate()
+    {
+        var dlg = await Dialogs.ShowAsync<Inventa.Web.Shared.Product.ProductFormDialog>("Nuevo producto", new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var res = await dlg.Result;
+        // S94: tras crear se abre la ficha del producto nuevo (variantes, códigos, precios e imágenes).
+        if (res is not null && !res.Canceled) { if (res.Data is long id && id > 0) Nav.NavigateTo($"/productos/{id}"); else await Reload(); }
+    }
+    private async Task OpenEdit(long idProd)
+    {
+        try
+        {
+            var p = await Svc.GetAsync(idProd, CancellationToken.None);
+            if (p is null) { Snackbar.Add("El producto ya no existe.", Severity.Warning); return; }
+            var dlg = await Dialogs.ShowAsync<Inventa.Web.Shared.Product.ProductFormDialog>("Editar producto", new DialogParameters { ["Model"] = p });
+            var res = await dlg.Result;
+            if (res is not null && !res.Canceled) await Reload();
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex) { Snackbar.Add(ex.ToApiError().Detail ?? "No se pudo abrir el producto.", Severity.Error); }
+    }
+    // S57.2/S57.4: publicar exige confirmación con las razones del servidor; retirar es directo.
+    private async Task ToggleVisible(ProductoListadoItemDto p, bool v)
+    {
+        if (v && _canEdit)
+        {
+            var pars = new DialogParameters { ["Codigo"] = p.Codigo, ["Nombre"] = p.Nombre, ["Razones"] = p.Razones.ToList() };
+            var dlg = await Dialogs.ShowAsync<Inventa.Web.Shared.Product.PublishConfirmDialog>("Confirmar publicación", pars);
+            var res = await dlg.Result;
+            if (res is null || res.Canceled) { StateHasChanged(); return; }
+        }
+        var prev = p.VisibleStore;
+        p.VisibleStore = v;
+        try
+        {
+            var r = await Svc.SetVisibleStoreAsync(p.IdProd, v, CancellationToken.None);
+            Snackbar.Add(v ? "Producto publicado en tienda" : "Producto retirado de tienda", Severity.Success);
+            if (r?.Advertencias is { Count: > 0 } adv)
+                foreach (var a in adv) Snackbar.Add($"Advertencia: {a}", Severity.Warning);
+            await Task.WhenAll(LoadAsync(), LoadResumenAsync());
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex)
+        {
+            p.VisibleStore = prev;
+            Snackbar.Add($"No se pudo cambiar la visibilidad: {ex.ToApiError().Detail}", Severity.Error);
+        }
+        StateHasChanged();
+    }
+    public void Dispose() { TenantCtx.OnTenantChanged -= OnTenantChanged; _cts?.Cancel(); _cts?.Dispose(); }
+}

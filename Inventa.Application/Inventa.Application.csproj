@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AutoMapper" />
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Inventa.Data\Inventa.Data.csproj" />
+    <ProjectReference Include="..\Inventa.Domain\Inventa.Domain.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Service\CBP.Services.Sync\CBP.Services.Sync.csproj" />
+  </ItemGroup>
+
+</Project>
+

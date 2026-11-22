@@ -1,0 +1,89 @@
+@using Inventa.Web.Models.Precios
+@* S93.1 (K5): acciones en lote sobre las variantes seleccionadas. Arma los cambios (no escribe);
+   los valores finales los calcula el servidor y se ven en la revisión. *@
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@Titulo</MudText></TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">@FormatoCl.Miles(Filas.Count) variante(s) seleccionada(s).@(Omitidas > 0 ? $" {FormatoCl.Miles(Omitidas)} no aplican y se omiten." : "")</MudText>
+        @if (Accion == "ajuste")
+        {
+            <MudGrid Spacing="2">
+                <MudItem xs="6"><MudNumericField Culture="@FormatoCl.Cultura" T="decimal?" @bind-Value="_pct" Label="Ajuste (%)" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" HideSpinButtons="true" Immediate="true" HelperText="Negativo para bajar" data-testid="lote-pct" /></MudItem>
+                <MudItem xs="6">
+                    <MudSelect T="RedondeoPrecioModo" @bind-Value="_redondeo" Label="Redondeo" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                        <MudSelectItem Value="RedondeoPrecioModo.Ninguno">Sin redondeo</MudSelectItem>
+                        <MudSelectItem Value="RedondeoPrecioModo.A10">A $10</MudSelectItem>
+                        <MudSelectItem Value="RedondeoPrecioModo.A100">A $100</MudSelectItem>
+                        <MudSelectItem Value="RedondeoPrecioModo.Termina990">Terminar en 990</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+        }
+        else if (Accion == "oferta")
+        {
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="4"><MudNumericField Culture="@FormatoCl.Cultura" T="decimal?" @bind-Value="_pct" Label="% descuento" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.End" AdornmentText="%" HideSpinButtons="true" Immediate="true" Min="1" Max="99" data-testid="lote-oferta-pct" /></MudItem>
+                <MudItem xs="6" sm="4"><MudDatePicker Label="Desde" Date="_desde" DateChanged="v => _desde = v" MinDate="HoyDt" DateFormat="dd-MM-yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="6" sm="4"><MudDatePicker Label="Hasta (opcional)" Date="_hasta" DateChanged="v => _hasta = v" MinDate="_desde ?? HoyDt" Clearable="true" DateFormat="dd-MM-yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="12" Class="d-flex flex-wrap gap-1">
+                    @foreach (var (txt, dias) in new[] { ("7 días", 7), ("15 días", 15), ("30 días", 30) })
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => _hasta = (_desde ?? HoyDt).AddDays(dias - 1))">@txt</MudChip>
+                    }
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => _hasta = PreciosUi.FinDeMes(DateOnly.FromDateTime(_desde ?? HoyDt)).ToDateTime(TimeOnly.MinValue))">Fin de mes</MudChip>
+                </MudItem>
+                <MudItem xs="12"><MudText Typo="Typo.caption" Color="Color.Secondary">La oferta reemplaza a la vigente de cada variante. El precio se calcula sobre el precio oficial y se redondea a pesos.</MudText></MudItem>
+            </MudGrid>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2">Las ofertas seleccionadas dejarán de regir desde hoy.</MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="() => MudDialog.Cancel()">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="!Valido" OnClick="Aceptar" data-testid="lote-aceptar">Agregar a cambios</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    /// <summary>"ajuste", "oferta" o "terminar".</summary>
+    [Parameter, EditorRequired] public string Accion { get; set; } = "ajuste";
+    [Parameter, EditorRequired] public List<FilaPrecioDto> Filas { get; set; } = [];
+    [Parameter] public DateOnly Hoy { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+
+    private decimal? _pct;
+    private RedondeoPrecioModo _redondeo = RedondeoPrecioModo.Ninguno;
+    private DateTime? _desde;
+    private DateTime? _hasta;
+    private DateTime HoyDt => Hoy.ToDateTime(TimeOnly.MinValue);
+
+    protected override void OnInitialized() => _desde = HoyDt;
+
+    private string Titulo => Accion switch { "ajuste" => "Ajustar precio oficial", "oferta" => "Poner en oferta", _ => "Terminar ofertas" };
+
+    private IEnumerable<FilaPrecioDto> Aplicables => Accion == "terminar" ? Filas.Where(f => f.Oferta is not null) : Filas.Where(f => f.Oficial is not null);
+    private int Omitidas => Filas.Count - Aplicables.Count();
+
+    private bool Valido => Aplicables.Any() && Accion switch
+    {
+        "ajuste" => _pct is decimal p && p != 0 && p >= -90 && p <= 500,
+        "oferta" => _pct is >= 1 and <= 99 && (_hasta is null || _hasta >= (_desde ?? HoyDt)),
+        _ => true
+    };
+
+    private void Aceptar()
+    {
+        DateOnly? desde = _desde is DateTime d && DateOnly.FromDateTime(d) > Hoy ? DateOnly.FromDateTime(d) : null;
+        DateOnly? hasta = _hasta is DateTime h ? DateOnly.FromDateTime(h) : null;
+        var cambios = Aplicables.Select(f => Accion switch
+        {
+            "ajuste" => PreciosUi.AjustePrecio(f, _pct!.Value, _redondeo),
+            "oferta" => PreciosUi.NuevaOferta(f, null, _pct, desde, hasta),
+            _ => PreciosUi.TerminarOferta(f)
+        }).ToList();
+        MudDialog.Close(DialogResult.Ok(cambios));
+    }
+}

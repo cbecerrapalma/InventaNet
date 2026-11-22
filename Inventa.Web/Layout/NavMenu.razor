@@ -1,0 +1,80 @@
+﻿@using System.Text.Json
+@using CBP.Acceso.Dto
+@using CBP.Blazor.Acceso
+@using CBP.Blazor.Mud.Acceso
+@using Inventa.Web.Services.Auth
+@inject PermissionService Perms
+@inject MenuAccesoCliente MenuApi
+@inject AuthenticationStateProvider AuthStateProvider
+@implements IDisposable
+
+@* S100 D7: el menú lo entrega PassPlat (GET api/modulos/menu, vía Inventa.WebAPI api/acceso/menu); aquí no hay enlaces ni permisos escritos. *@
+<MudNavMenu Dense="true" Class="pa-2 nav-consolidated" data-testid="nav-menu">
+    @if (_menu is not null)
+    {
+        <MenuAcceso Items="_menu" OnNavigate="Notify" />
+    }
+    else
+    {
+        <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard" OnClick="Notify" aria-label="Inicio" data-testid="nav-inicio">Inicio</MudNavLink>
+        @if (_error)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2" data-testid="nav-error">Menú no disponible: no se pudo consultar PassPlat.</MudAlert>
+        }
+    }
+    @* S95 K5.1: solo usuarios maestros de PassPlat (claim is_system). Fuera del menú de PassPlat: ningún permiso INVENTA_* lo muestra. *@
+    @if (_esMaestro)
+    {
+        <MudNavLink Href="/configuracion/acceso" Icon="@Icons.Material.Filled.Security" OnClick="Notify" aria-label="Acceso y permisos" data-testid="nav-config-acceso">Acceso y permisos</MudNavLink>
+    }
+</MudNavMenu>
+
+@code {
+    private IReadOnlyList<ItemMenuDto>? _menu;
+    private bool _error;
+    private bool _esMaestro;
+    [Parameter] public EventCallback OnNavigate { get; set; }
+    private async Task Notify() => await OnNavigate.InvokeAsync();
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthChangedHandler;
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        await ActualizarAsync(state);
+    }
+
+    private async Task ActualizarAsync(AuthenticationState state)
+    {
+        if (!(state.User.Identity?.IsAuthenticated ?? false))
+        {
+            _menu = null;
+            _error = false;
+            _esMaestro = false;
+            return;
+        }
+        try
+        {
+            var respuesta = await MenuApi.ObtenerAsync();
+            _menu = respuesta.Exito ? respuesta.Valor : null;
+            _error = !respuesta.Exito || respuesta.Valor is null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException)
+        {
+            _menu = null;
+            _error = true;
+        }
+        _esMaestro = await Perms.EsUsuarioMaestroAsync();
+    }
+
+    private void OnAuthChangedHandler(Task<AuthenticationState> task)
+    {
+        // Handler síncrono que lanza trabajo asíncrono de forma segura.
+        _ = InvokeAsync(async () =>
+        {
+            await ActualizarAsync(await task);
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose() => AuthStateProvider.AuthenticationStateChanged -= OnAuthChangedHandler;
+}

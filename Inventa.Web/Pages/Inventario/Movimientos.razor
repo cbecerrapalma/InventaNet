@@ -1,0 +1,69 @@
+@page "/inventario/movimientos"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Inventario.InventarioApiService Svc
+@inject Inventa.Web.Services.Bodegas.BodegasApiService BodegaSvc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+<PageHeader Title="Movimientos" Description="Entradas y salidas de inventario, de la más reciente a la más antigua." Icon="@Icons.Material.Filled.SyncAlt" />
+
+@if (!_checked){<LoadingState />}
+else if (!_allowed){<Forbidden />}
+else if (_loading){<LoadingState Message="Cargando movimientos..." />}
+else if (_error is not null){<ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Reload" />}
+else
+{
+    <MudPaper Class="pa-3 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudGrid Spacing="2">
+            <MudItem xs="6" md="3"><MudSelect T="int?" Value="_idBodega" ValueChanged="OnBodegaChanged" Label="Bodega" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Dense="true"><MudSelectItem Value="@((int?)null)">Todas</MudSelectItem>@foreach(var b in _bodegas){<MudSelectItem Value="@((int?)b.IdBodega)">@b.Codigo - @b.Nombre</MudSelectItem>}</MudSelect></MudItem>
+            <MudItem xs="6" md="2"><MudSelect T="byte?" Value="_fTipoMov" ValueChanged="OnTipoChanged" Label="Tipo" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Dense="true" data-testid="filtro-tipo"><MudSelectItem Value="@((byte?)null)">Todos</MudSelectItem><MudSelectItem Value="@((byte?)1)">Compra</MudSelectItem><MudSelectItem Value="@((byte?)2)">Venta</MudSelectItem><MudSelectItem Value="@((byte?)3)">Ajuste entrada</MudSelectItem><MudSelectItem Value="@((byte?)4)">Ajuste salida</MudSelectItem><MudSelectItem Value="@((byte?)5)">Transferencia entrada</MudSelectItem><MudSelectItem Value="@((byte?)6)">Transferencia salida</MudSelectItem></MudSelect></MudItem>
+            <MudItem xs="10" md="4"><MudTextField @bind-Value="_search" Label="Buscar producto o código..." Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="OnSearchDebounced" Clearable="true" aria-label="Buscar movimientos" /></MudItem>
+            <MudItem xs="2" md="3" Class="d-flex justify-end align-center">
+                <MudTooltip Text="Actualizar"><MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="Reload" aria-label="Actualizar" /></MudTooltip>
+                <div class="d-none d-md-block ml-2"><MudSelect T="int" Value="_pageSize" ValueChanged="OnPageSizeChanged" Label="Por página" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="max-width:110px"><MudSelectItem Value="20">20</MudSelectItem><MudSelectItem Value="50">50</MudSelectItem><MudSelectItem Value="100">100</MudSelectItem></MudSelect></div>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+    @if (_displayed.Count==0)
+    {
+        <EmptyState Title="Sin movimientos" Description="@(string.IsNullOrWhiteSpace(_search)?"No existen movimientos para el filtro.":"No hay resultados.")" Icon="@Icons.Material.Filled.SyncAlt" />
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Mostrando 0 de @FormatoCl.Miles(_totalCount)</MudText>
+    }
+    else
+    {
+        <MudTable Items="@_displayed" Dense="true" Hover="true" Striped="true" Bordered="true" Elevation="0" Class="mb-2 inv-tabla-compacta inv-tabla-lista" data-testid="tabla-movimientos">
+            <HeaderContent><MudTh>Fecha</MudTh><MudTh>Bodega</MudTh><MudTh>Producto</MudTh><MudTh>Variante</MudTh><MudTh>Tipo</MudTh><MudTh>Cantidad</MudTh></HeaderContent>
+            <RowTemplate><MudTd DataLabel="Fecha">@FormatoCl.FechaHora(context.FecMov)</MudTd><MudTd DataLabel="Bodega">@BodegaNombre(context.IdBodega)</MudTd><MudTd DataLabel="Producto" Class="inv-celda-titulo"><div>@context.ProdNombre<MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block">@context.ProdCodigo</MudText></div></MudTd><MudTd DataLabel="Variante">@context.VarNombre</MudTd><MudTd DataLabel="Tipo">@TipoNombre(context.TipoMov)</MudTd><MudTd DataLabel="Cantidad">@FormatoCl.Cantidad(context.CantBase)</MudTd></RowTemplate>
+        </MudTable>
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-2">
+            <MudText Typo="Typo.caption" Color="Color.Secondary" data-testid="paginacion-texto">Mostrando @FormatoCl.Miles(_pageStart+1)-@FormatoCl.Miles(_pageEnd) de @FormatoCl.Miles(_totalCount)</MudText>
+            <MudPagination Count="@_totalPages" Selected="_page" SelectedChanged="OnPageChanged" Color="Color.Primary" BoundaryCount="1" MiddleCount="1" aria-label="Paginación movimientos" />
+        </MudStack>
+    }
+}
+
+@code {
+    private bool _checked; private bool _allowed; private bool _loading=true; private Inventa.Web.Models.Api.ApiError? _error;
+    private List<Inventa.Web.Models.Bodegas.BodegaDto> _bodegas=[];
+    private List<Inventa.Web.Models.Inventario.MovInvDto> _items=[]; private List<Inventa.Web.Models.Inventario.MovInvDto> _displayed=[];
+    private int? _idBodega; private string _search=""; private byte? _fTipoMov; private int _page=1; private int _pageSize=20; private int _totalCount; private int _totalPages=1; private int _pageStart; private int _pageEnd;
+    private CancellationTokenSource? _cts; private int _loadGen;
+    protected override async Task OnInitializedAsync(){ _allowed=await PermsService.HasPermissionAsync("INVENTA_INVENTARIO_MOVIMIENTOS_VER"); _checked=true; if(!_allowed) return; TenantCtx.OnTenantChanged+=OnTenantChanged; _bodegas=await BodegaSvc.ListAsync(CancellationToken.None) ?? []; await LoadAsync(); }
+    private void OnTenantChanged(int? localId, int? passPlatId){ _ = OnTenantChangedAsync(localId); }
+    private async Task OnTenantChangedAsync(int? localId){ _cts?.Cancel(); _loadGen++; _items.Clear(); _displayed.Clear(); _totalCount=0; _totalPages=1; _page=1; await InvokeAsync(async()=>{ _loading=true; StateHasChanged(); await LoadAsync(); StateHasChanged();}); }
+    private async Task LoadAsync(){ _cts?.Cancel(); _cts=new CancellationTokenSource(); var ct=_cts.Token; var gen=++_loadGen; _loading=true; _error=null; StateHasChanged(); try{ var paged=await Svc.GetMovimientosPagedAsync(_idBodega,_fTipoMov,_search,_page,_pageSize,ct); if(ct.IsCancellationRequested||gen!=_loadGen) return; if(paged is null){ _items=[]; _totalCount=0; _totalPages=1;} else { _items=paged.Items.ToList(); _totalCount=paged.TotalCount; _totalPages=Math.Max(1,paged.TotalPages);} if(_page> _totalPages){ _page=_totalPages; await LoadAsync(); return;} ApplyLocal(); } catch(Inventa.Web.Models.Api.ApiException ex){ if(gen!=_loadGen) return; _error=ex.ToApiError(); if(ex.StatusCode==401) Snackbar.Add("Sesión expirada", Severity.Warning);} catch(OperationCanceledException){} catch(Exception ex){ if(gen!=_loadGen) return; _error=new(){StatusCode=0, Title="Error", Detail=ex.Message};} finally{ if(gen==_loadGen){ _loading=false; StateHasChanged();}} }
+    private void ApplyLocal(){ // S114 D3: el tipo se filtra en la API (tipoMov); aquí solo se calcula el rango mostrado.
+        _displayed=_items.ToList(); _pageStart=_totalCount==0?0:(_page-1)*_pageSize; _pageEnd=Math.Min(_pageStart+_items.Count,_totalCount); }
+    private async Task Reload(){ _page=1; await LoadAsync(); }
+    private async Task OnSearchDebounced(string v){ _search=v??""; _page=1; await LoadAsync(); }
+    private async Task OnBodegaChanged(int? v){ _idBodega=v; _page=1; await LoadAsync(); }
+    private async Task OnTipoChanged(byte? v){ _fTipoMov=v; _page=1; await LoadAsync(); }
+    private async Task OnPageChanged(int p){ _page=p; await LoadAsync(); }
+    private async Task OnPageSizeChanged(int s){ _pageSize=s; _page=1; await LoadAsync(); }
+    private string BodegaNombre(int id)=> _bodegas.FirstOrDefault(b=>b.IdBodega==id)?.Nombre ?? id.ToString();
+    // TipoMov (MovInvRepository.cs:28-29): 1=Compra, 2=Venta, 3=Ajuste Entrada, 4=Ajuste Salida, 5=Transferencia Entrada, 6=Transferencia Salida.
+    private static string TipoNombre(byte t)=> t switch { 1=>"Compra", 2=>"Venta", 3=>"Ajuste entrada", 4=>"Ajuste salida", 5=>"Transferencia entrada", 6=>"Transferencia salida", _=>t.ToString() };
+    public void Dispose(){ TenantCtx.OnTenantChanged-=OnTenantChanged; _cts?.Cancel(); _cts?.Dispose(); }
+}

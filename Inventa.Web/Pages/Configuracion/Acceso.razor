@@ -1,0 +1,35 @@
+@page "/configuracion/acceso"
+@attribute [Authorize]
+@* AccesoPagina — este atributo NO controla la seguridad: solo informa al catálogo de acceso (menú/PassPlat)
+   lo que el generador no puede deducir de esta página. Qué hace y cuándo usarlo: Docs/Architecture/Acceso-Dinamico.md *@
+@attribute [CBP.Acceso.AccesoPagina("Ventana técnica exclusiva de usuarios maestros (EsSistema): no se asigna por roles ni se publica en PassPlat", Excluir = true)]
+@using CBP.Blazor.Mud.Acceso
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Auth.JwtClaimsReader Claims
+@inject Inventa.Web.Services.Storage.ITokenStorage Tokens
+
+@if (!_checked){<LoadingState />}
+else if (!_allowed){<Forbidden />} @* para quien no es maestro no se muestra ni el encabezado: la operación no existe *@
+else
+{
+    <PageHeader Title="Acceso y permisos" Description="Catálogo de ventanas y permisos de la aplicación (común a todos los tenants) y su publicación en PassPlat. Solo usuarios maestros." Icon="@Icons.Material.Filled.Security" />
+    <PanelAccesoAdmin PuedeEditar="true" Permisos="_permisos" Usuario="@_usuario" />
+}
+
+@code {
+    // S95 K5.1 (decisión del dueño 2026-10-19): solo un usuario maestro de PassPlat (claim is_system) ve y ejecuta
+    // esta ventana; ningún permiso INVENTA_* la habilita. La API aplica la misma regla (política USUARIO_MAESTRO).
+    private bool _checked, _allowed;
+    private IReadOnlyCollection<string> _permisos = [];
+    private string? _usuario;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allowed = await PermsService.EsUsuarioMaestroAsync();
+        _checked = true;
+        if (!_allowed) return;
+        _permisos = (await PermsService.GetPermissionsAsync()).ToList();
+        Claims.SetToken(await Tokens.GetAccessTokenAsync());
+        _usuario = Claims.GetUserName(); // el JWT de PassPlat no trae nombre: el panel muestra «Mi cuenta»
+    }
+}

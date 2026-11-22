@@ -1,0 +1,577 @@
+/* ============================================================
+   Inventa.Web — app.css
+   Tokens de diseño, utilidades de shell, accesibilidad
+   Sin !important salvo justificación comentada
+   ============================================================ */
+
+/* ---------- Tokens de espacio y radio ---------- */
+:root {
+    --inv-space-1: 4px;
+    --inv-space-2: 8px;
+    --inv-space-3: 12px;
+    --inv-space-4: 16px;
+    --inv-space-5: 24px;
+    --inv-space-6: 32px;
+    --inv-radius: 8px;
+    --inv-border: 1px solid var(--mud-palette-lines-default);
+}
+
+/* ---------- Utilidades de superficie ---------- */
+.inv-surface {
+    border: var(--inv-border);
+    border-radius: var(--inv-radius);
+    background-color: var(--mud-palette-surface);
+}
+
+/* ---------- Page header ---------- */
+.inv-page-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--inv-space-3);
+    margin-bottom: var(--inv-space-4);
+    padding-bottom: var(--inv-space-3);
+    border-bottom: var(--inv-border);
+}
+
+.inv-page-header__title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.inv-page-header__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--inv-space-2);
+    flex-shrink: 0;
+}
+
+/* ---------- KPI cards ---------- */
+.inv-kpi {
+    padding: var(--inv-space-4);
+    border: var(--inv-border);
+    border-radius: var(--inv-radius);
+    background-color: var(--mud-palette-surface);
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+/* Alturas fijas de paneles del dashboard (sustituyen min-height inline) */
+.inv-kpi--tall {
+    min-height: 200px;
+}
+
+.inv-panel--tall {
+    min-height: 260px;
+}
+
+/* ---------- Skip link (visible solo con foco) ---------- */
+.inv-skip-link {
+    position: absolute;
+    top: -100%;
+    left: var(--inv-space-4);
+    z-index: 10000;
+    padding: var(--inv-space-2) var(--inv-space-3);
+    background-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary-contrasttext);
+    border-radius: var(--inv-radius);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: top 0.15s ease;
+}
+
+.inv-skip-link:focus {
+    top: var(--inv-space-4);
+    outline: none;
+    box-shadow: 0 0 0 2px var(--mud-palette-primary), 0 0 0 4px var(--mud-palette-background);
+}
+
+/* ---------- Loader en #app ---------- */
+.inv-loader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background-color: var(--mud-palette-background);
+    color: var(--mud-palette-text-primary);
+    font-family: var(--mud-typography-default-fontfamily);
+    gap: var(--inv-space-3);
+}
+
+.inv-loader__spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--mud-palette-lines-default);
+    border-top-color: var(--mud-palette-primary);
+    border-radius: 50%;
+    animation: inv-spin 0.8s linear infinite;
+}
+
+@keyframes inv-spin {
+    to { transform: rotate(360deg); }
+}
+
+.inv-loader__text {
+    font-size: 0.9375rem;
+    color: var(--mud-palette-text-secondary);
+}
+
+/* ---------- Blazor error UI ---------- */
+.inv-error-ui {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: var(--inv-space-3) var(--inv-space-4);
+    background-color: var(--mud-palette-error);
+    color: var(--mud-palette-error-contrasttext);
+    font-family: var(--mud-typography-default-fontfamily);
+    font-size: 0.875rem;
+    text-align: center;
+    z-index: 10000;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.15);
+}
+
+.inv-error-ui__reload {
+    margin-left: var(--inv-space-3);
+    color: inherit;
+    text-decoration: underline;
+    font-weight: 600;
+}
+
+body .inv-error-ui {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: var(--inv-space-3);
+}
+
+/* ---------- Focus visible global ---------- */
+a:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible,
+.mud-button-root:focus-visible,
+.mud-icon-button:focus-visible,
+.mud-nav-link:focus-visible,
+.mud-text-field:focus-visible,
+.mud-select:focus-visible,
+.mud-menu-item:focus-visible,
+.mud-tab:focus-visible,
+.mud-avatar:focus-visible {
+    outline: none !important;
+    box-shadow: 0 0 0 2px var(--mud-palette-primary), 0 0 0 4px var(--mud-palette-background) !important;
+}
+
+/* ---------- Mobile tap targets (≥ 44×44 px) ---------- */
+@media (max-width: 599.98px) {
+    .mud-icon-button,
+    .mud-nav-link,
+    .mud-button-root,
+    .mud-menu-item,
+    .mud-tab,
+    .mud-avatar,
+    .mud-chip,
+    .mud-select,
+    .mud-text-field,
+    .mud-checkbox,
+    .mud-radio,
+    .mud-switch {
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    .mud-icon-button {
+        padding: var(--inv-space-2);
+    }
+
+    .mud-nav-link {
+        padding: var(--inv-space-2) var(--inv-space-3);
+    }
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    .inv-loader__spinner {
+        animation: none;
+        border-top-color: var(--mud-palette-primary);
+    }
+}
+
+/* ---------- Print ---------- */
+@media print {
+    .inv-skip-link,
+    .mud-app-bar,
+    .mud-drawer,
+    .mud-icon-button,
+    .mud-button-root,
+    .inv-loader {
+        display: none !important;
+    }
+
+    .inv-page-header {
+        border-bottom: 2px solid #000;
+    }
+}
+
+/* ---------- Auth Layout ---------- */
+.inv-auth-layout {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--mud-palette-background);
+    position: relative;
+    overflow: hidden;
+}
+
+.inv-auth-layout__bg {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, var(--mud-palette-primary) 0%, var(--mud-palette-secondary) 100%);
+    opacity: 0.03;
+    pointer-events: none;
+}
+
+.inv-auth-layout__container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--inv-space-4);
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+.inv-auth-layout__paper {
+    width: 100%;
+    max-width: 460px;
+    min-width: 0;
+    padding: var(--inv-space-5);
+    box-sizing: border-box;
+    background-color: var(--mud-palette-surface);
+    border: var(--inv-border);
+    border-radius: var(--inv-radius);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+}
+
+.inv-auth-layout__header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: var(--inv-space-4);
+    position: relative;
+    padding-right: var(--inv-space-7);
+    min-width: 0;
+}
+
+.inv-auth-layout__brand {
+    font-family: var(--mud-typography-h5-family);
+    font-size: var(--mud-typography-h5-size);
+    font-weight: var(--mud-typography-h5-weight);
+    line-height: var(--mud-typography-h5-lineheight);
+    letter-spacing: var(--mud-typography-h5-letterspacing);
+    overflow-wrap: anywhere;
+}
+
+.inv-auth-layout__paper { position: relative; }
+.inv-auth-layout__paper > .inv-auth-layout__theme-toggle { top: var(--inv-space-2); right: var(--inv-space-2); margin-right: 0; }
+.inv-auth-layout__theme-toggle {
+    position: absolute;
+    top: 0;
+    right: 0;
+}
+
+@media (max-width: 599.98px) {
+    .inv-auth-layout__paper {
+        padding: var(--inv-space-4);
+        margin: var(--inv-space-2);
+    }
+}
+
+/* ---------- MainLayout ---------- */
+.inv-appbar-title {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    padding: var(--inv-space-1) 0;
+}
+
+.inv-appbar-title:hover {
+    text-decoration: none;
+    opacity: 0.85;
+}
+
+.inv-appbar-title:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--mud-palette-primary), 0 0 0 4px var(--mud-palette-background);
+    border-radius: var(--inv-radius);
+}
+/* ---------- TenantSelector ---------- */
+.inv-tenant-selector {
+    min-width: 140px;
+    max-width: 240px;
+    width: 100%;
+}
+
+.inv-tenant-selector .mud-select-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* S91.2: filtro de la tabla de incidencias de importación */
+.inv-filtro-incidencias {
+    min-width: 200px;
+    max-width: 280px;
+}
+
+/* S112 D3: el nombre del tenant en una línea, recortado con «…» */
+.inv-tenant-indicator {
+    max-width: 240px;
+}
+
+.inv-tenant-indicator__nombre {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (max-width: 599.98px) {
+    .inv-tenant-indicator {
+        max-width: 140px;
+    }
+
+    .inv-appbar-title {
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .inv-appbar-title .mud-typography {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* S112 D4 / S113 D1 / S128 D2: filas de tabla más compactas en móvil (productos, inventario y listados) */
+    .inv-tabla-productos.mud-xs-table .mud-table-cell,
+    .inv-tabla-compacta.mud-sm-table .mud-table-cell,
+    .inv-tabla-compacta.mud-xs-table .mud-table-cell {
+        padding: 4px 12px;
+    }
+
+    /* S118 D2/D4: MudTd.HideSmall aplica visibility:collapse (la celda sigue ocupando); en móvil no se muestra */
+    .inv-tabla-compacta.mud-sm-table .mud-table-cell-hide {
+        display: none;
+    }
+
+    /* S128 D1: tarjeta compacta de listados y fichas (modo tarjeta de MudTable < 600 px): 2 columnas, etiqueta arriba; la celda inv-celda-titulo ocupa la fila */
+    .inv-tabla-tarjeta.mud-xs-table .mud-table-body .mud-table-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        column-gap: 8px;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--mud-palette-table-lines);
+    }
+
+    .inv-tabla-tarjeta.mud-xs-table .mud-table-row .mud-table-cell {
+        display: block;
+        padding: 2px 12px;
+        border: none;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .inv-tabla-tarjeta.mud-xs-table .mud-table-row .mud-table-cell:before {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 400;
+        padding: 0;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .inv-tabla-tarjeta.mud-xs-table .mud-table-row .mud-table-cell.inv-celda-titulo {
+        grid-column: 1 / -1;
+    }
+
+    .inv-tabla-tarjeta.mud-xs-table .mud-table-row .mud-table-cell.inv-celda-titulo:before {
+        content: none;
+    }
+
+    .inv-tabla-tarjeta.mud-xs-table .mud-table-row .mud-table-cell.mud-table-cell-hide {
+        display: none;
+    }
+
+    /* S129 D1: lista en flujo (modo tarjeta de MudTable < 600 px): título y acciones en la 1.ª línea, el resto en línea con su etiqueta */
+    .inv-tabla-lista:is(.mud-xs-table, .mud-sm-table) .mud-table-body .mud-table-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        column-gap: 12px;
+        row-gap: 2px;
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--mud-palette-table-lines);
+    }
+
+    .inv-tabla-lista:is(.mud-xs-table, .mud-sm-table) .mud-table-row .mud-table-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0;
+        border: none;
+        min-width: 0;
+        width: auto;
+        min-height: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .inv-tabla-lista:is(.mud-xs-table, .mud-sm-table) .mud-table-row .mud-table-cell:before {
+        font-size: 0.75rem;
+        font-weight: 400;
+        padding: 0;
+        width: auto;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .inv-tabla-lista:is(.mud-xs-table, .mud-sm-table) .mud-table-row .mud-table-cell.inv-celda-titulo {
+        flex: 1 1 calc(100% - 132px);
+        order: -2;
+    }
+
+    .inv-tabla-lista:is(.mud-xs-table, .mud-sm-table) .mud-table-row .mud-table-cell.inv-celda-acciones {
+        margin-left: auto;
+        order: -1;
+    }
+
+    .inv-tabla-lista:is(.mud-xs-table, .mud-sm-table) .mud-table-row .mud-table-cell.inv-celda-titulo:before,
+    .inv-tabla-lista:is(.mud-xs-table, .mud-sm-table) .mud-table-row .mud-table-cell.inv-celda-acciones:before {
+        content: none;
+    }
+
+    /* S129 D2: chips de estado en tablas móviles sin el alto táctil de 44 px */
+    .inv-tabla-tarjeta.mud-xs-table .mud-chip:not(.mud-clickable),
+    .inv-tabla-lista:is(.mud-xs-table, .mud-sm-table) .mud-chip:not(.mud-clickable) {
+        margin: 0;
+        min-height: 0;
+    }
+
+    /* S130 D2: en la lista en flujo, las celdas HideSmall no se muestran y, si la fila tiene acciones, el resto empieza en la 2.ª línea */
+    .inv-tabla-lista:is(.mud-xs-table, .mud-sm-table) .mud-table-row .mud-table-cell.mud-table-cell-hide {
+        display: none;
+    }
+
+    .inv-tabla-lista:is(.mud-xs-table, .mud-sm-table) .mud-table-body .mud-table-row:has(> .inv-celda-acciones)::after {
+        content: "";
+        flex-basis: 100%;
+        order: -1;
+    }
+
+    /* S130 D6: en esas filas los campos van más juntos para que el interruptor «Tienda» no gane un renglón propio */
+    .inv-tabla-lista:is(.mud-xs-table, .mud-sm-table) .mud-table-body .mud-table-row:has(> .inv-celda-acciones) {
+        padding: 4px 12px;
+        row-gap: 0;
+    }
+
+    /* S120 D4: horarios de la tienda en móvil: día y «Cerrado» en la primera fila; las 4 horas en 2 columnas, con su etiqueta arriba */
+    .inv-horarios.mud-xs-table .mud-table-body .mud-table-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        column-gap: 8px;
+        padding: 4px 0;
+        border-bottom: 1px solid var(--mud-palette-table-lines);
+    }
+
+    .inv-horarios.mud-xs-table .mud-table-row .mud-table-cell {
+        display: block;
+        order: 2;
+        padding: 2px 8px;
+    }
+
+    .inv-horarios.mud-xs-table .mud-table-row .mud-table-cell:before {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 400;
+        padding: 0;
+    }
+
+    .inv-horarios.mud-xs-table .mud-table-row .mud-table-cell:first-child {
+        order: 0;
+        align-self: center;
+        font-weight: 500;
+    }
+
+    .inv-horarios.mud-xs-table .mud-table-row .mud-table-cell:first-child:before {
+        content: none;
+    }
+
+    .inv-horarios.mud-xs-table .mud-table-row .mud-table-cell:last-child {
+        order: 1;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        border-bottom: none;
+    }
+
+    .inv-horarios.mud-xs-table .mud-table-row .mud-table-cell:last-child:before {
+        display: inline;
+        padding-inline-end: 8px;
+    }
+
+    /* S120 D5: redes sociales en móvil: filas compactas y la URL parte en varias líneas en vez de cortarse */
+    .inv-redes.mud-xs-table .mud-table-cell {
+        padding: 4px 12px;
+    }
+
+    .inv-redes.mud-xs-table .mud-table-cell .inv-url-red {
+        min-width: 0;
+        text-align: end;
+        word-break: break-all;
+    }
+
+    /* S118 D5: asistente de importación en móvil: solo el título del paso activo; el selector de archivo no se sale del panel */
+    .inv-asistente .mud-step:not(.active) .mud-step-label-content {
+        display: none;
+    }
+
+    .inv-input-archivo {
+        max-width: 100%;
+    }
+
+    /* S112 D5: filtros plegados: solo la búsqueda y el botón «Filtros (n)» */
+    .inv-filtros--cerrado .mud-grid-item:not(.inv-filtros-siempre) {
+        display: none !important;
+    }
+
+    /* S123 D4: pestañas de la ficha en móvil: cada una toma solo el ancho de su rótulo.
+       MudTabs escribe min-width:160px en línea (MinimumTabWidth), y solo un !important de autor le gana. */
+    .inv-ficha-tabs .mud-tab {
+        min-width: fit-content !important;
+    }
+
+    /* S131 D1: diálogos en móvil: casi a pantalla completa (8px de margen) y sin las flechas del campo numérico */
+    .mud-dialog-container .mud-dialog {
+        margin: 8px !important;
+        width: calc(100% - 16px) !important;
+        max-width: none !important;
+        max-height: calc(100dvh - 16px) !important;
+    }
+
+    .mud-dialog .mud-input-numeric-spin {
+        display: none !important;
+    }
+}

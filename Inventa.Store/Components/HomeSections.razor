@@ -1,0 +1,107 @@
+@* S71 portada por secciones: solo datos reales; cada sección se omite sin datos.
+   U4: tiles de categoría con imagen o inicial temática + conteo.
+   U5: sección "Marcas" solo si hay 2+ marcas.
+   F4: títulos de sección como h2. *@
+@using Inventa.Store.Models
+@using Inventa.Store.Components
+
+@if (Raices is { Count: > 0 })
+{
+    <section aria-label="Categorías" data-testid="store-home-categorias">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+            <MudText Typo="Typo.h6" Style="font-weight:600;" HtmlTag="h2">Categorías</MudText>
+            @if (Raices.Count == 1 && Raices[0].Hijos.Count > 12)
+            {
+                <a href="@($"/?cat={Raices[0].Id}")" class="store-home__more" data-testid="store-home-cats-all">Ver todas</a>
+            }
+        </MudStack>
+        <div class="store-home__tiles">
+            @foreach (var r in Tiles.Take(12))
+            {
+                <a href="@($"/?cat={r.Id}")" class="store-home__tile" data-testid="store-home-cat-tile">
+                    @if (!string.IsNullOrWhiteSpace(ImagenDe(r.Id)))
+                    {
+                        <img src="@ImagenDe(r.Id)" alt="" loading="lazy" class="store-home__tile-img" aria-hidden="true" />
+                    }
+                    else
+                    {
+                        <span class="store-home__tile-initial" aria-hidden="true" style="background-color: @GetCategoryColor(r.Id);">@InicialDe(r.Nombre)</span>
+                    }
+                    <span class="store-home__tile-name">@r.Nombre</span>
+                    <span class="store-home__tile-count">@CantidadFmt(r.Cantidad) productos</span>
+                </a>
+            }
+        </div>
+    </section>
+}
+
+@if (CargandoOfertas)
+{
+    <section aria-label="Ofertas" data-testid="store-home-ofertas-loading">
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-4" />
+    </section>
+}
+else if (Ofertas is { Count: > 0 })
+{
+    <section aria-label="Ofertas" role="region" data-testid="store-home-ofertas">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+            <MudText Typo="Typo.h6" Style="font-weight:600;" HtmlTag="h2">Ofertas</MudText>
+            <a href="/?ofertas=true&orden=descuento_desc" class="store-home__more" data-testid="store-home-offers-all">Ver todas las ofertas</a>
+        </MudStack>
+        <div class="store-home__carousel" tabindex="0" aria-label="Carrusel de ofertas: usa las flechas del teclado para desplazarte entre enlaces">
+            @foreach (var p in Ofertas)
+            {
+                <div class="store-home__slide">
+                    <ProductCard Producto="p" Moneda="@Moneda" Compacta="true" />
+                </div>
+            }
+        </div>
+    </section>
+}
+
+@if (Marcas is { Count: > 1 })
+{
+    <section aria-label="Marcas" data-testid="store-home-marcas">
+        <MudText Typo="Typo.h6" Style="font-weight:600;" Class="mb-2" HtmlTag="h2">Marcas</MudText>
+        <div class="store-home__brands">
+            @foreach (var m in Marcas.Take(16))
+            {
+                <a href="@($"/?marca={m.IdMarca}")" class="store-home__brand" data-testid="store-home-brand-link">@m.Nombre</a>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<CategoryNode> Raices { get; set; } = [];
+    [Parameter] public IReadOnlyList<PublicProductDto> Ofertas { get; set; } = [];
+    [Parameter] public IReadOnlyList<PublicBrandDto> Marcas { get; set; } = [];
+    [Parameter] public string Moneda { get; set; } = "CLP";
+    [Parameter] public bool CargandoOfertas { get; set; }
+    [Parameter] public IReadOnlyDictionary<long, string?> ImagenesCategorias { get; set; } = new Dictionary<long, string?>();
+
+    // D2: con una sola raíz (p. ej. «Vestuario») el tile útil es cada hija, no la raíz.
+    IReadOnlyList<CategoryNode> Tiles => Raices.Count == 1 && Raices[0].Hijos.Count > 0 ? Raices[0].Hijos : Raices;
+
+    string? ImagenDe(long id) => ImagenesCategorias.TryGetValue(id, out var u) ? u : null;
+
+    static string InicialDe(string? nombre) =>
+        string.IsNullOrWhiteSpace(nombre) ? "·" : char.ToUpperInvariant(nombre.Trim()[0]).ToString();
+
+    string CantidadFmt(int? c) => FormatoCl.Miles(c ?? 0);
+
+    // U4: color temático suave para la inicial basado en hash del ID
+    string GetCategoryColor(long id)
+    {
+        var colors = new[]
+        {
+            "rgba(29, 78, 137, 0.12)",  // primary tint
+            "rgba(4, 120, 87, 0.12)",   // success tint
+            "rgba(180, 83, 9, 0.12)",   // warning tint
+            "rgba(3, 105, 161, 0.12)",  // info tint
+            "rgba(185, 28, 28, 0.12)",  // error tint
+            "rgba(55, 65, 81, 0.12)"    // gray tint
+        };
+        return colors[id % colors.Length];
+    }
+}

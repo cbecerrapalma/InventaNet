@@ -1,0 +1,121 @@
+@using CBP.Blazor.Formatting
+@using Inventa.Web.Models.Productos
+@inject Inventa.Web.Services.Productos.ProductosApiService Svc
+@inject ISnackbar Snackbar
+@* S94 (K2/K6): crear = producto + primera variante (presentación 1:1, código principal y precio oficial inicial) en una
+   sola operación del servidor. Editar recalcula la descripción de las presentaciones; la unidad base solo cambia sin historia. *@
+<MudDialog>
+    <DialogContent>
+        <EditForm Model="@_model" OnValidSubmit="Save">
+            <DataAnnotationsValidator />
+            <MudGrid Spacing="2">
+                <MudItem xs="12"><MudText Typo="Typo.subtitle2">Producto</MudText></MudItem>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_model.Codigo" Label="Código" Variant="Variant.Outlined" Required="true" RequiredError="Requerido" MaxLength="50" Immediate="true" aria-label="Código" data-testid="prod-codigo" /></MudItem>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_model.Nombre" Label="Nombre" Variant="Variant.Outlined" Required="true" RequiredError="Requerido" MaxLength="150" Immediate="true" aria-label="Nombre" data-testid="prod-nombre" /></MudItem>
+                <MudItem xs="12" md="6"><MudSelect T="long" @bind-Value="_model.IdCategoria" Label="Categoría" Variant="Variant.Outlined" Required="true" Dense="true">@foreach(var c in _categorias){<MudSelectItem Value="@c.IdCategoria">@c.Nombre</MudSelectItem>}</MudSelect></MudItem>
+                <MudItem xs="12" md="6"><MudSelect T="int?" @bind-Value="_model.IdMarca" Label="Marca" Variant="Variant.Outlined" Clearable="true" Dense="true"><MudSelectItem Value="@((int?)null)">Sin marca</MudSelectItem>@foreach(var m in _marcas){<MudSelectItem Value="@((int?)m.IdMarca)">@m.Nombre</MudSelectItem>}</MudSelect></MudItem>
+                <MudItem xs="12" md="6">
+                    <MudSelect T="int" @bind-Value="_model.IdUniBase" Label="Unidad base" Variant="Variant.Outlined" Required="true" Dense="true"
+                               HelperText="@(IsEdit ? "Solo se puede cambiar si el producto no tiene stock, movimientos, ventas ni compras." : null)">
+                        @foreach(var u in _unidades){<MudSelectItem Value="@u.IdUnidad">@u.Nombre (@u.Codigo)</MudSelectItem>}
+                    </MudSelect>
+                </MudItem>
+                @if (!IsEdit)
+                {
+                    <MudItem xs="12"><MudDivider Class="my-1" /><MudText Typo="Typo.subtitle2">Primera variante</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Cada variante tiene una presentación y un código de barras principal. Si no ingresas un código, el sistema genera uno interno.</MudText></MudItem>
+                    <MudItem xs="12" md="6"><MudTextField @bind-Value="_model.Variante.Codigo" Label="Código de la variante" Variant="Variant.Outlined" Required="true" RequiredError="Requerido" MaxLength="50" Immediate="true" aria-label="Código de la variante" data-testid="var-codigo" /></MudItem>
+                    <MudItem xs="12" md="6"><MudTextField @bind-Value="_model.Variante.Nombre" Label="Nombre o talla" Variant="Variant.Outlined" Required="true" RequiredError="Requerido" MaxLength="100" Immediate="true" aria-label="Nombre de la variante" data-testid="var-nombre" /></MudItem>
+                    <MudItem xs="12" md="4">
+                        <MudNumericField T="decimal?" @bind-Value="_model.Variante.PrecioVenta" Culture="@FormatoCl.Cultura" Format="#,0.##" Label="Precio de venta" Variant="Variant.Outlined"
+                                         Adornment="Adornment.Start" AdornmentText="$" HideSpinButtons="true" Min="0" Required="true" RequiredError="Requerido" aria-label="Precio de venta" data-testid="var-precio" />
+                    </MudItem>
+                    <MudItem xs="12" md="5"><MudTextField @bind-Value="_model.Variante.CodigoBarras" Label="Código de barras (opcional)" Variant="Variant.Outlined" MaxLength="20" Immediate="true" aria-label="Código de barras" data-testid="var-codbar" /></MudItem>
+                    <MudItem xs="12" md="3">
+                        <MudSelect T="byte" @bind-Value="_model.Variante.TipoCodigo" Label="Tipo" Variant="Variant.Outlined" Dense="true" Disabled="@string.IsNullOrWhiteSpace(_model.Variante.CodigoBarras)">
+                            <MudSelectItem Value="@TipoCodigoAlta.Normal">EAN / UPC</MudSelectItem>
+                            <MudSelectItem Value="@TipoCodigoAlta.Proveedor">Proveedor</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                }
+                <MudItem xs="12"><ValidationSummary /></MudItem>
+                @if (_apiError is not null){<MudItem xs="12"><MudAlert Severity="Severity.Error" data-testid="prod-error">@_apiError.Detail@if (!string.IsNullOrWhiteSpace(_apiError.CorrelationId)) {<br/><MudText Typo="Typo.caption">Código de seguimiento: @_apiError.CorrelationId</MudText>}</MudAlert></MudItem>}
+            </MudGrid>
+        </EditForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="_submitting" aria-label="Guardar producto">@(_submitting ? "Guardando..." : IsEdit ? "Guardar" : "Crear producto")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public ProdDto? Model { get; set; }
+    private ProductoNuevoDto _model = new();
+    private List<CategoriaDto> _categorias = [];
+    private List<MarcaDto> _marcas = [];
+    private List<UnidadDto> _unidades = [];
+    private bool _submitting; private Inventa.Web.Models.Api.ApiError? _apiError;
+    private bool IsEdit => Model is not null;
+    protected override async Task OnInitializedAsync()
+    {
+        if (IsEdit) { _model = new(){ Codigo=Model!.Codigo, Nombre=Model.Nombre, IdCategoria=Model.IdCategoria, IdMarca=Model.IdMarca, IdUniBase=Model.IdUniBase }; }
+        try
+        {
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            _categorias = await Svc.GetCategoriasAsync(cts.Token) ?? [];
+            _marcas = await Svc.GetMarcasAsync(cts.Token) ?? [];
+            _unidades = await Svc.GetUnidadesAsync(cts.Token) ?? [];
+            if (_unidades.Count>0 && _model.IdUniBase==0) _model.IdUniBase=_unidades[0].IdUnidad;
+            if (_categorias.Count>0 && _model.IdCategoria==0) _model.IdCategoria=_categorias[0].IdCategoria;
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex) { _apiError = ex.ToApiError(); }
+        catch (HttpRequestException) { _apiError = new() { Title = "Sin conexión", Detail = "No se pudieron cargar categorías, marcas y unidades." }; }
+        catch (OperationCanceledException) { _apiError = new() { Title = "Tiempo agotado", Detail = "No se pudieron cargar categorías, marcas y unidades." }; }
+    }
+    private void Cancel() => MudDialog.Cancel();
+    private string? Faltantes()
+    {
+        if (string.IsNullOrWhiteSpace(_model.Codigo) || string.IsNullOrWhiteSpace(_model.Nombre) || _model.IdCategoria==0 || _model.IdUniBase==0)
+            return "Completa código, nombre, categoría y unidad base del producto.";
+        if (IsEdit) return null;
+        if (string.IsNullOrWhiteSpace(_model.Variante.Codigo) || string.IsNullOrWhiteSpace(_model.Variante.Nombre))
+            return "Completa el código y el nombre de la primera variante.";
+        if (_model.Variante.PrecioVenta is not > 0) return "El precio de venta debe ser mayor que 0.";
+        return null;
+    }
+    private async Task Save()
+    {
+        if (_submitting) return;
+        // S57.5 P0.3: trim before validate/send (whitespace-only or padded values never reach the API).
+        _model.Codigo = (_model.Codigo ?? "").Trim();
+        _model.Nombre = (_model.Nombre ?? "").Trim();
+        _model.Variante.Codigo = (_model.Variante.Codigo ?? "").Trim();
+        _model.Variante.Nombre = (_model.Variante.Nombre ?? "").Trim();
+        _model.Variante.CodigoBarras = string.IsNullOrWhiteSpace(_model.Variante.CodigoBarras) ? null : _model.Variante.CodigoBarras.Trim();
+        if (Faltantes() is { } msg) { Snackbar.Add(msg, Severity.Warning); return; }
+        _submitting=true; _apiError=null; StateHasChanged();
+        try
+        {
+            if (IsEdit)
+            {
+                await Svc.UpdateAsync(Model!.IdProd, _model, CancellationToken.None);
+                Snackbar.Add("Producto actualizado.", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(Model!.IdProd));
+            }
+            else
+            {
+                var r = await Svc.CreateAsync(_model, CancellationToken.None);
+                Snackbar.Add(r?.CodigoBarras is { } cb ? $"Producto creado. Código de barras principal: {cb}." : "Producto creado.", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(r?.IdProd ?? 0L));
+            }
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex)
+        {
+            _apiError = ex.ToApiError();
+            Snackbar.Add(_apiError.Detail ?? "No fue posible guardar el producto.", Severity.Error);
+        }
+        catch (HttpRequestException) { _apiError = new() { Title = "Sin conexión", Detail = "No se pudo contactar al servidor. Intenta nuevamente." }; }
+        finally { _submitting=false; StateHasChanged(); }
+    }
+}

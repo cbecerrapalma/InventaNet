@@ -1,0 +1,91 @@
+@using CBP.Blazor.Formatting
+@using Inventa.Web.Models.Productos
+@inject Inventa.Web.Services.Productos.ProductosApiService Svc
+@inject ISnackbar Snackbar
+@* S94 (K2/K6): nueva variante = variante + presentación 1:1 + código principal + precio inicial (una operación).
+   Editar: nombre y estado; la presentación sigue a la variante y su descripción se recalcula en el servidor. *@
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            @if (IsEdit)
+            {
+                <MudItem xs="12"><MudText Typo="Typo.caption" Color="Color.Secondary">Código</MudText><MudText><b>@Variante!.Codigo</b></MudText></MudItem>
+                <MudItem xs="12"><MudTextField @bind-Value="_edicion.Nombre" Label="Nombre o talla" Variant="Variant.Outlined" Required="true" MaxLength="100" Immediate="true" aria-label="Nombre de la variante" data-testid="var-nombre" /></MudItem>
+                <MudItem xs="12"><MudSwitch T="bool" @bind-Value="_edicion.Activo" Color="Color.Success" Label="@(_edicion.Activo ? "Activa (a la venta)" : "Inactiva (no se vende ni se muestra en tienda)")" data-testid="var-activo" /></MudItem>
+            }
+            else
+            {
+                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_nueva.Codigo" Label="Código de la variante" Variant="Variant.Outlined" Required="true" MaxLength="50" Immediate="true" aria-label="Código de la variante" data-testid="var-codigo" /></MudItem>
+                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_nueva.Nombre" Label="Nombre o talla" Variant="Variant.Outlined" Required="true" MaxLength="100" Immediate="true" aria-label="Nombre de la variante" data-testid="var-nombre" /></MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudNumericField T="decimal?" @bind-Value="_nueva.PrecioVenta" Culture="@FormatoCl.Cultura" Format="#,0.##" Label="Precio de venta" Variant="Variant.Outlined"
+                                     Adornment="Adornment.Start" AdornmentText="$" HideSpinButtons="true" Min="0" Required="true" aria-label="Precio de venta" data-testid="var-precio" />
+                </MudItem>
+                <MudItem xs="12" sm="5"><MudTextField @bind-Value="_nueva.CodigoBarras" Label="Código de barras (opcional)" Variant="Variant.Outlined" MaxLength="20" Immediate="true" aria-label="Código de barras" data-testid="var-codbar"
+                                                     HelperText="Vacío: el sistema genera un código interno." /></MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudSelect T="byte" @bind-Value="_nueva.TipoCodigo" Label="Tipo" Variant="Variant.Outlined" Dense="true" Disabled="@string.IsNullOrWhiteSpace(_nueva.CodigoBarras)">
+                        <MudSelectItem Value="@TipoCodigoAlta.Normal">EAN / UPC</MudSelectItem>
+                        <MudSelectItem Value="@TipoCodigoAlta.Proveedor">Proveedor</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            }
+            @if (_error is not null){<MudItem xs="12"><MudAlert Severity="Severity.Error" data-testid="var-error">@_error.Detail@if (!string.IsNullOrWhiteSpace(_error.CorrelationId)) {<br/><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText>}</MudAlert></MudItem>}
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="_submitting" aria-label="Guardar variante">@(_submitting ? "Guardando..." : IsEdit ? "Guardar" : "Crear variante")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    /// <summary>Producto al que se agrega la variante (modo creación).</summary>
+    [Parameter] public long IdProd { get; set; }
+    /// <summary>Variante a editar (modo edición).</summary>
+    [Parameter] public FichaVarianteDto? Variante { get; set; }
+    private VarianteNuevaDto _nueva = new();
+    private VarianteEdicionDto _edicion = new();
+    private bool _submitting; private Inventa.Web.Models.Api.ApiError? _error;
+    private bool IsEdit => Variante is not null;
+    protected override void OnInitialized()
+    {
+        if (IsEdit) _edicion = new() { Nombre = Variante!.Nombre, Activo = Variante.Activo };
+    }
+    private void Cancel() => MudDialog.Cancel();
+    private async Task Save()
+    {
+        if (_submitting) return;
+        _error = null;
+        try
+        {
+            _submitting = true; StateHasChanged();
+            if (IsEdit)
+            {
+                _edicion.Nombre = (_edicion.Nombre ?? "").Trim();
+                if (_edicion.Nombre.Length == 0) { Snackbar.Add("Ingresa el nombre de la variante.", Severity.Warning); return; }
+                await Svc.UpdateVarianteAsync(Variante!.IdVarProd, _edicion, CancellationToken.None);
+                Snackbar.Add("Variante actualizada.", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(Variante.IdVarProd));
+            }
+            else
+            {
+                _nueva.Codigo = (_nueva.Codigo ?? "").Trim();
+                _nueva.Nombre = (_nueva.Nombre ?? "").Trim();
+                _nueva.CodigoBarras = string.IsNullOrWhiteSpace(_nueva.CodigoBarras) ? null : _nueva.CodigoBarras.Trim();
+                if (_nueva.Codigo.Length == 0 || _nueva.Nombre.Length == 0) { Snackbar.Add("Completa el código y el nombre de la variante.", Severity.Warning); return; }
+                if (_nueva.PrecioVenta is not > 0) { Snackbar.Add("El precio de venta debe ser mayor que 0.", Severity.Warning); return; }
+                var r = await Svc.CreateVarianteAsync(IdProd, _nueva, CancellationToken.None);
+                Snackbar.Add(r?.CodigoBarras is { } cb ? $"Variante creada. Código de barras principal: {cb}." : "Variante creada.", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(r?.IdVarProd ?? 0L));
+            }
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex)
+        {
+            _error = ex.ToApiError();
+            Snackbar.Add(_error.Detail ?? "No fue posible guardar la variante.", Severity.Error);
+        }
+        catch (HttpRequestException) { _error = new() { Title = "Sin conexión", Detail = "No se pudo contactar al servidor. Intenta nuevamente." }; }
+        finally { _submitting = false; StateHasChanged(); }
+    }
+}

@@ -1,0 +1,44 @@
+@page "/inventario/transferencias"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageHeader Title="Transferencias" Description="Transferencias entre bodegas." Icon="@Icons.Material.Filled.SyncAlt">
+    <Actions>
+        @if (_canTransferir){<MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.SyncAlt" OnClick="OpenDialog" aria-label="Nueva transferencia">Transferir</MudButton>}
+    </Actions>
+</PageHeader>
+
+@if (!_checked){<LoadingState />}
+else if (!_allowed){<Forbidden />}
+else
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3" data-testid="transferencias-ayuda">
+        Mueve existencias de una bodega a otra; se valida que el origen tenga stock suficiente.
+        @if (!_canTransferir){<MudText Typo="Typo.caption" Class="mt-1">No tienes permiso para transferir: solo lectura.</MudText>}
+    </MudAlert>
+    <MudPaper Class="pa-4" Elevation="0" Style="border:1px dashed var(--mud-palette-lines-default)">
+        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.SyncAlt" Size="Size.Large" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">Transferencias de inventario</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Align="Align.Center">Seleccione bodega origen, destino y los items a transferir.</MudText>
+            @if (_canTransferir){<MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenDialog" aria-label="Nueva transferencia">Nueva transferencia</MudButton>}
+        </MudStack>
+    </MudPaper>
+    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Las transferencias aparecen en <MudLink Href="/inventario/movimientos">Movimientos</MudLink> (tipo Transferencia entrada o Transferencia salida).</MudText>
+}
+
+@code{
+    private bool _checked,_allowed,_canTransferir;
+    protected override async Task OnInitializedAsync(){
+        _allowed=await PermsService.HasPermissionAsync("INVENTA_INVENTARIO_TRANSFERENCIAS_VER");
+        _canTransferir=await PermsService.HasPermissionAsync("INVENTA_INVENTARIO_TRANSFERENCIAS_TRANSFERIR");
+        _checked=true;
+    }
+    private async Task OpenDialog(){
+        var dlg=await Dialogs.ShowAsync<Inventa.Web.Shared.Inventory.TransferInventoryDialog>("Transferir entre bodegas", new DialogOptions{ MaxWidth=MaxWidth.Medium, FullWidth=true });
+        var r=await dlg.Result; if(r is not null && !r.Canceled) Snackbar.Add("Transferencia registrada — verifique Stock/Movimientos.",Severity.Success);
+    }
+}

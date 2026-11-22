@@ -1,0 +1,162 @@
+@page "/configuracion/storefront"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Storefront.StorefrontApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject ISnackbar Snackbar
+
+<PageHeader Title="Tienda pública" Description="Datos que ven los clientes en la tienda en línea del tenant actual." Icon="@Icons.Material.Filled.Store" />
+
+@if (!_checked){<LoadingState />}
+else if (!_allowed){<Forbidden />}
+else if (_loading){<LoadingState Message="Cargando perfil de tienda..." />}
+else if (_error is not null){<ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="LoadAsync" />}
+else
+{
+    <MudPaper Class="pa-4 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
+            <MudText Typo="Typo.h6">Perfil comercial</MudText>
+            <MudChip T="string" Size="Size.Small" Color="@(_edit.Publicado?Color.Success:Color.Default)">@(_edit.Publicado?"Publicado":"No publicado")</MudChip>
+        </MudStack>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_edit.NombreFantasia" Label="Nombre fantasía" Variant="Variant.Outlined" MaxLength="200" Disabled="@(!_canEdit)" aria-label="Nombre fantasía" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_edit.LogoUrl" Label="URL del logo" Variant="Variant.Outlined" MaxLength="500" Disabled="@(!_canEdit)" aria-label="Logo URL" HelperText="https://... o /ruta-relativa" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="_edit.DescripcionCorta" Label="Descripción corta" Variant="Variant.Outlined" MaxLength="500" Disabled="@(!_canEdit)" aria-label="Descripción corta" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="_edit.Descripcion" Label="Descripción" Variant="Variant.Outlined" Lines="3" MaxLength="4000" Disabled="@(!_canEdit)" aria-label="Descripción" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField @bind-Value="_edit.Telefono" Label="Teléfono" Variant="Variant.Outlined" MaxLength="50" Disabled="@(!_canEdit)" aria-label="Teléfono" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField @bind-Value="_edit.WhatsApp" Label="WhatsApp" Variant="Variant.Outlined" MaxLength="50" Disabled="@(!_canEdit)" aria-label="WhatsApp" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField @bind-Value="_edit.Email" Label="Email" Variant="Variant.Outlined" MaxLength="255" Disabled="@(!_canEdit)" aria-label="Email" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_edit.Direccion" Label="Dirección" Variant="Variant.Outlined" MaxLength="300" Disabled="@(!_canEdit)" aria-label="Dirección" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_edit.SitioWeb" Label="Sitio web" Variant="Variant.Outlined" MaxLength="300" Disabled="@(!_canEdit)" aria-label="Sitio web" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField @bind-Value="_edit.Comuna" Label="Comuna" Variant="Variant.Outlined" MaxLength="100" Disabled="@(!_canEdit)" aria-label="Comuna" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField @bind-Value="_edit.Ciudad" Label="Ciudad" Variant="Variant.Outlined" MaxLength="100" Disabled="@(!_canEdit)" aria-label="Ciudad" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField @bind-Value="_edit.Region" Label="Región" Variant="Variant.Outlined" MaxLength="100" Disabled="@(!_canEdit)" aria-label="Región" /></MudItem>
+            <MudItem xs="12"><MudSwitch @bind-Value="_edit.Publicado" Label="@(_edit.Publicado?"Tienda publicada":"Tienda no publicada")" Color="Color.Success" Disabled="@(!_canEdit)" aria-label="Publicado" /></MudItem>
+        </MudGrid>
+        @if (_canEdit)
+        {
+            <MudStack Row="true" Spacing="2" Class="mt-4">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveProfile" Disabled="_saving" aria-label="Guardar perfil">@(_saving?"Guardando...":"Guardar perfil")</MudButton>
+            </MudStack>
+        }
+        else {<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-3">Solo lectura: tu usuario no tiene permiso para editar la tienda pública.</MudAlert>}
+        @if (_saveError is not null){<MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mt-3">@_saveError.Detail<br/><MudText Typo="Typo.caption">Código de seguimiento: @_saveError.CorrelationId</MudText></MudAlert>}
+    </MudPaper>
+
+    <MudPaper Class="pa-4 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudText Typo="Typo.h6" Class="mb-3">Redes sociales</MudText>
+        @if (_links.Count==0){<MudText Typo="Typo.body2" Color="Color.Secondary">Sin redes configuradas.</MudText>}
+        else
+        {
+            <MudTable Items="_links" Dense="true" Hover="true" Elevation="0" Bordered="true" Breakpoint="Breakpoint.Xs" Class="mb-3 inv-redes" data-testid="tabla-redes">
+                <HeaderContent><MudTh>Tipo</MudTh><MudTh>URL</MudTh><MudTh>Orden</MudTh><MudTh></MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Tipo">@context.Tipo</MudTd>
+                    <MudTd DataLabel="URL"><MudLink Href="@context.Url" Target="_blank" Class="inv-url-red">@context.Url</MudLink></MudTd>
+                    <MudTd DataLabel="Orden">@FormatoCl.Miles(context.Orden)</MudTd>
+                    <MudTd>@if (_canEdit){<MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(()=>RemoveLink(context))" aria-label="Eliminar red" />}</MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+        @if (_canEdit)
+        {
+            <MudGrid Spacing="2">
+                <MudItem xs="12" md="3"><MudSelect @bind-Value="_newTipo" Label="Tipo" Variant="Variant.Outlined" Dense="true" aria-label="Tipo de red">@foreach(var t in AllowedTypes){<MudSelectItem Value="@t">@t</MudSelectItem>}</MudSelect></MudItem>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_newUrl" Label="URL (https://…)" Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="URL de red" /></MudItem>
+                <MudItem xs="6" md="1"><MudNumericField Culture="@FormatoCl.Cultura" @bind-Value="_newOrden" Label="Orden" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" Max="99" aria-label="Orden" /></MudItem>
+                <MudItem xs="6" md="2" Class="d-flex align-center"><MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="AddLink" Disabled="_savingLink" aria-label="Agregar red">Agregar</MudButton></MudItem>
+            </MudGrid>
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-4 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudText Typo="Typo.h6" Class="mb-3">Horarios de atención</MudText>
+        <MudTable Items="_hours.OrderBy(h => (h.DiaSemana + 6) % 7).ToList()" Dense="true" Hover="true" Elevation="0" Bordered="true" Breakpoint="Breakpoint.Xs" Class="mb-3 inv-horarios" data-testid="tabla-horarios">
+            <HeaderContent><MudTh>Día</MudTh><MudTh>Apertura 1</MudTh><MudTh>Cierre 1</MudTh><MudTh>Apertura 2</MudTh><MudTh>Cierre 2</MudTh><MudTh>Cerrado</MudTh></HeaderContent>
+            <RowTemplate>
+                 <MudTd DataLabel="Día">@DayNameWithInitialCapital(context.DiaSemana)</MudTd>
+                <MudTd DataLabel="Apertura 1"><MudTextField Value="Fmt(context.Apertura1)" ValueChanged="@(async (string v)=>{context.Apertura1=Parse(v); await Task.CompletedTask;})" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!_canEdit || context.Cerrado)" Placeholder="09:00" aria-label="Apertura 1" /></MudTd>
+                <MudTd DataLabel="Cierre 1"><MudTextField Value="Fmt(context.Cierre1)" ValueChanged="@(async (string v)=>{context.Cierre1=Parse(v); await Task.CompletedTask;})" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!_canEdit || context.Cerrado)" Placeholder="13:00" aria-label="Cierre 1" /></MudTd>
+                <MudTd DataLabel="Apertura 2"><MudTextField Value="Fmt(context.Apertura2)" ValueChanged="@(async (string v)=>{context.Apertura2=Parse(v); await Task.CompletedTask;})" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!_canEdit || context.Cerrado)" Placeholder="15:00" aria-label="Apertura 2" /></MudTd>
+                <MudTd DataLabel="Cierre 2"><MudTextField Value="Fmt(context.Cierre2)" ValueChanged="@(async (string v)=>{context.Cierre2=Parse(v); await Task.CompletedTask;})" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!_canEdit || context.Cerrado)" Placeholder="19:00" aria-label="Cierre 2" /></MudTd>
+                <MudTd DataLabel="Cerrado"><MudSwitch T="bool" Value="context.Cerrado" ValueChanged="@(async (bool v)=>{context.Cerrado=v; await Task.CompletedTask;})" Disabled="@(!_canEdit)" Color="Color.Warning" aria-label="Cerrado" /></MudTd>
+            </RowTemplate>
+        </MudTable>
+        @if (_canEdit){<MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveHours" Disabled="_savingHours" aria-label="Guardar horarios">@(_savingHours?"Guardando...":"Guardar horarios")</MudButton>}
+        @if (_hoursError is not null){<MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mt-3">@_hoursError</MudAlert>}
+    </MudPaper>
+}
+
+@code{
+    private static readonly string[] AllowedTypes = ["facebook","instagram","tiktok","x","linkedin","youtube","whatsapp","web"];
+    private static readonly string[] DayNames = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+    private bool _checked,_allowed,_canEdit,_loading=true,_saving,_savingLink,_savingHours;
+    private Inventa.Web.Models.Api.ApiError? _error,_saveError;
+    private string? _hoursError;
+    private Inventa.Web.Models.Storefront.StorefrontProfileDto _edit = new();
+    private List<Inventa.Web.Models.Storefront.SocialLinkDto> _links = [];
+    private List<Inventa.Web.Models.Storefront.BusinessHourDto> _hours = [];
+    private string _newTipo = "facebook"; private string _newUrl = ""; private int _newOrden;
+    protected override async Task OnInitializedAsync(){
+        _allowed = await PermsService.HasPermissionAsync("INVENTA_CONFIGURACION_STOREFRONT_VER");
+        _canEdit = await PermsService.HasPermissionAsync("INVENTA_CONFIGURACION_STOREFRONT_EDITAR");
+        _checked = true; if (!_allowed) return;
+        await LoadAsync();
+    }
+    private async Task LoadAsync(){
+        _loading = true; _error = null; StateHasChanged();
+        try{
+            var r = await Svc.GetAsync(CancellationToken.None);
+            if (r?.P is not null) _edit = r.P;
+            _links = r?.Social ?? [];
+            _hours = r?.Hours ?? [];
+            if (_hours.Count == 0) _hours = DiasPorDefecto();
+        }
+        // S94 K0: tenant sin perfil de tienda (404) => igual se ofrecen los 7 días para configurarlos.
+        catch (Inventa.Web.Models.Api.ApiException ex){ if (ex.StatusCode == 404){ _edit = new(); _hours = DiasPorDefecto(); } else { _error = ex.ToApiError(); if (ex.StatusCode==401) Snackbar.Add("Sesión expirada", Severity.Warning); } }
+        catch (Exception ex){ _error = new(){ StatusCode=0, Title="Error", Detail=ex.Message }; }
+        finally{ _loading = false; StateHasChanged(); }
+    }
+    private async Task SaveProfile(){
+        _saving = true; _saveError = null;
+        try{ var r = await Svc.SaveProfileAsync(_edit, CancellationToken.None); if (r is not null) _edit = r; Snackbar.Add("Perfil guardado", Severity.Success); }
+        catch (Inventa.Web.Models.Api.ApiException ex){ _saveError = ex.ToApiError(); }
+        catch (Exception ex){ _saveError = new(){ StatusCode=0, Title="Error", Detail=ex.Message }; }
+        finally{ _saving = false; }
+    }
+    private async Task AddLink(){
+        if (string.IsNullOrWhiteSpace(_newUrl)){ Snackbar.Add("URL requerida", Severity.Warning); return; }
+        _savingLink = true;
+        try{
+            var r = await Svc.AddLinkAsync(new(){ Tipo=_newTipo, Url=_newUrl.Trim(), Orden=_newOrden }, CancellationToken.None);
+            if (r is not null){ _links.Add(r); _newUrl=""; Snackbar.Add("Red agregada", Severity.Success); }
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex){ Snackbar.Add(ex.ToApiError().Detail ?? "Error", Severity.Error); }
+        finally{ _savingLink = false; }
+    }
+    private async Task RemoveLink(Inventa.Web.Models.Storefront.SocialLinkDto l){
+        try{ await Svc.RemoveLinkAsync(l.IdTenantSocialLink, CancellationToken.None); _links.Remove(l); Snackbar.Add("Red eliminada", Severity.Success); }
+        catch (Inventa.Web.Models.Api.ApiException ex){ Snackbar.Add(ex.ToApiError().Detail ?? "Error", Severity.Error); }
+    }
+    private async Task SaveHours(){
+        _savingHours = true; _hoursError = null;
+        try{
+            foreach (var h in _hours){
+                if (h.Cerrado) continue;
+                if (!Valid(h.Apertura1,h.Cierre1) && !Valid(h.Apertura2,h.Cierre2)){ _hoursError = $"Rango inválido día {DayName(h.DiaSemana)} (apertura < cierre, formato hh:mm)"; return; }
+            }
+            var r = await Svc.SaveHoursAsync(_hours, CancellationToken.None);
+            if (r is not null) _hours = r;
+            Snackbar.Add("Horarios guardados", Severity.Success);
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex){ _hoursError = ex.ToApiError().Detail; }
+        finally{ _savingHours = false; }
+    }
+    private static bool Valid(TimeSpan? a, TimeSpan? c) => a.HasValue && c.HasValue && a < c;
+    private static string DayName(byte d) => DayNames[d];
+    /// <summary>S94 K0: 7 días (DayOfWeek, 0 = Domingo); sábado y domingo cerrados por defecto.</summary>
+    public static List<Inventa.Web.Models.Storefront.BusinessHourDto> DiasPorDefecto() =>
+        Enumerable.Range(0, 7).Select(d => new Inventa.Web.Models.Storefront.BusinessHourDto { DiaSemana = (byte)d, Cerrado = d is 0 or 6 }).ToList();
+    private static string DayNameWithInitialCapital(byte d) => char.ToUpper(DayNames[d][0]) + DayNames[d].Substring(1);
+    private static string Fmt(TimeSpan? t) => t.HasValue ? t.Value.ToString(@"hh\:mm") : "";
+    private static TimeSpan? Parse(string v) => TimeSpan.TryParse(v, out var t) ? t : null;
+}

@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>InventaNet-WebAPI-dev</UserSecretsId>
+    <!-- S95 D1: el WebAPI genera en el servidor el mismo catálogo de acceso que Inventa.Web (mismas páginas y menú). -->
+    <AccesoApp>INVENTA</AccesoApp>
+    <!-- S100 D4b: el menú lo administra PassPlat; el catálogo no lee Layout/NavMenu.razor (igual que Inventa.Web, o la huella difiere → 409). -->
+    <AccesoMenuDinamico>true</AccesoMenuDinamico>
+    <!-- Los diagnósticos del catálogo (ACC0xx) los informa Inventa.Web, dueño de las páginas; aquí no se repiten. -->
+    <AccesoInformarDiagnosticos>false</AccesoInformarDiagnosticos>
+    <!-- S95 D1: el WebAPI no tiene vistas .razor/.cshtml propias. Sin esto, el generador de Razor del SDK Web tomaría como
+         componentes los .razor de Inventa.Web agregados abajo como AdditionalFiles (CS8785). -->
+    <UseRazorSourceGenerator>false</UseRazorSourceGenerator>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Inventa.Application.Async\Inventa.Application.Async.csproj" />
+    <ProjectReference Include="..\Inventa.Data.Async\Inventa.Data.Async.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Authentication\CBP.Authentication.JwtBearer\CBP.Authentication.JwtBearer.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Core\CBP.Results\CBP.Results.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.WebAPI\CBP.WebApi\CBP.WebApi.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Infraestructure\CBP.Excel.ClosedXML\CBP.Excel.ClosedXML.csproj" />
+    <!-- S104: storage por capacidades (CBP.Storage) con sus dos proveedores; Storage:Provider elige cuál se registra. -->
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Infraestructure\CBP.Storage\CBP.Storage\CBP.Storage.csproj" />
+<ProjectReference Include="D:\CODIGOS\CBP\CBP.Infraestructure\CBP.Storage\CBP.Storage.Imaging\CBP.Storage.Imaging.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Infraestructure\CBP.Storage\CBP.Storage.Local\CBP.Storage.Local.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Infraestructure\CBP.Storage\CBP.Storage.S3\CBP.Storage.S3.csproj" />
+    <!-- S95: catálogo de acceso (contrato CBP.Acceso + generador) y SDK oficial de PassPlat. -->
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Core\CBP\CBP.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Acceso.Generador\CBP.Acceso.Generador.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="D:\CODIGOS\PassPlat\PassPlat.Client\PassPlat.Client.csproj" />
+  </ItemGroup>
+
+  <!-- S95 D1 / S99 D7: todo el .razor de Inventa.Web (páginas, menú, componentes y layout) como entrada del generador (solo lectura, no se
+       compilan aquí). Además, los .cs de Inventa.Application.Async y los propios, marcados AccesoFuente="permisos": el generador detecta
+       en ellos los permisos que se chequean (servicios y controladores). El TargetPath (Application.Async\, WebAPI\) es el «origen» que el
+       manifiesto informa de cada permiso detectado; los servicios y componentes se leen antes que los controladores. -->
+  <ItemGroup>
+    <AdditionalFiles Include="..\Inventa.Web\**\*.razor" Exclude="..\Inventa.Web\obj\**;..\Inventa.Web\bin\**" TargetPath="%(RecursiveDir)%(Filename)%(Extension)" />
+    <AdditionalFiles Include="..\Inventa.Application.Async\**\*.cs" Exclude="..\Inventa.Application.Async\obj\**;..\Inventa.Application.Async\bin\**" AccesoFuente="permisos" TargetPath="Application.Async\%(RecursiveDir)%(Filename)%(Extension)" />
+    <AdditionalFiles Include="**\*.cs" Exclude="obj\**;bin\**" AccesoFuente="permisos" TargetPath="WebAPI\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <Import Project="D:\CODIGOS\CBP\CBP.Acceso.Generador\build\CBP.Acceso.Generador.props" />
+
+</Project>

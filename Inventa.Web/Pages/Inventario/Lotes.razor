@@ -1,0 +1,62 @@
+@page "/inventario/lotes"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Inventario.InventarioApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+<PageHeader Title="Lotes" Description="Lotes y su fecha de vencimiento." Icon="@Icons.Material.Filled.BatchPrediction" />
+
+@if (!_checked){<LoadingState />}
+else if (!_allowed){<Forbidden />}
+else if (_loading){<LoadingState Message="Cargando lotes..." />}
+else if (_error is not null){<ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Reload" />}
+else
+{
+    <MudPaper Class="pa-3 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_search" Label="Buscar..." Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="OnSearchDebounced" Clearable="true" aria-label="Buscar lotes" /></MudItem>
+            <MudItem xs="10" md="3"><MudSelect T="bool?" Value="_fActivo" ValueChanged="OnActivoChanged" Label="Activo" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Dense="true"><MudSelectItem Value="@((bool?)null)">Todos</MudSelectItem><MudSelectItem Value="@((bool?)true)">Activo</MudSelectItem><MudSelectItem Value="@((bool?)false)">Inactivo</MudSelectItem></MudSelect></MudItem>
+            <MudItem xs="2" md="3" Class="d-flex justify-end align-center">
+                <MudTooltip Text="Actualizar"><MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="Reload" aria-label="Actualizar" /></MudTooltip>
+                <div class="d-none d-md-block ml-2"><MudSelect T="int" Value="_pageSize" ValueChanged="OnPageSizeChanged" Label="Por página" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="max-width:110px"><MudSelectItem Value="20">20</MudSelectItem><MudSelectItem Value="50">50</MudSelectItem><MudSelectItem Value="100">100</MudSelectItem></MudSelect></div>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+    @if (_displayed.Count==0)
+    {
+        <EmptyState Title="Sin lotes" Description="@(string.IsNullOrWhiteSpace(_search)?"No existen lotes.":"No hay resultados.")" Icon="@Icons.Material.Filled.BatchPrediction" />
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Mostrando 0 de @FormatoCl.Miles(_totalCount)</MudText>
+    }
+    else
+    {
+        <MudTable Items="@_displayed" Dense="true" Hover="true" Striped="true" Bordered="true" Elevation="0" Class="mb-2 inv-tabla-compacta inv-tabla-lista" data-testid="tabla-lotes">
+            <HeaderContent><MudTh>Código</MudTh><MudTh>Vence</MudTh><MudTh>Estado</MudTh><MudTh>Activo</MudTh></HeaderContent>
+            <RowTemplate><MudTd DataLabel="Código" Class="inv-celda-titulo">@context.Codigo</MudTd><MudTd DataLabel="Vence">@(context.FecVen is null ? "—" : FormatoCl.Fecha(context.FecVen))</MudTd><MudTd DataLabel="Estado">@LoteEstado(context)</MudTd><MudTd DataLabel="Activo"><MudChip T="string" Size="Size.Small" Color="@(context.Activo?Color.Success:Color.Default)">@(context.Activo?"Sí":"No")</MudChip></MudTd></RowTemplate>
+        </MudTable>
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-2">
+            <MudText Typo="Typo.caption" Color="Color.Secondary" data-testid="paginacion-texto">Mostrando @FormatoCl.Miles(_pageStart+1)-@FormatoCl.Miles(_pageEnd) de @FormatoCl.Miles(_totalCount)</MudText>
+            <MudPagination Count="@_totalPages" Selected="_page" SelectedChanged="OnPageChanged" Color="Color.Primary" BoundaryCount="1" MiddleCount="1" aria-label="Paginación lotes" />
+        </MudStack>
+    }
+}
+
+@code {
+    private bool _checked; private bool _allowed; private bool _loading=true; private Inventa.Web.Models.Api.ApiError? _error;
+    private List<Inventa.Web.Models.Inventario.LoteDto> _items=[]; private List<Inventa.Web.Models.Inventario.LoteDto> _displayed=[];
+    private string _search=""; private bool? _fActivo; private int _page=1; private int _pageSize=20; private int _totalCount; private int _totalPages=1; private int _pageStart; private int _pageEnd;
+    private CancellationTokenSource? _cts; private int _loadGen;
+    protected override async Task OnInitializedAsync(){ _allowed=await PermsService.HasPermissionAsync("INVENTA_INVENTARIO_LOTES_VER"); _checked=true; if(!_allowed) return; TenantCtx.OnTenantChanged+=OnTenantChanged; await LoadAsync(); }
+    private void OnTenantChanged(int? localId, int? passPlatId){ _ = OnTenantChangedAsync(localId); }
+    private async Task OnTenantChangedAsync(int? localId){ _cts?.Cancel(); _loadGen++; _items.Clear(); _displayed.Clear(); _totalCount=0; _totalPages=1; _page=1; await InvokeAsync(async()=>{ _loading=true; StateHasChanged(); await LoadAsync(); StateHasChanged();}); }
+    private async Task LoadAsync(){ _cts?.Cancel(); _cts=new CancellationTokenSource(); var ct=_cts.Token; var gen=++_loadGen; _loading=true; _error=null; StateHasChanged(); try{ var paged=await Svc.GetLotesPagedAsync(_search,_page,_pageSize,ct); if(ct.IsCancellationRequested||gen!=_loadGen) return; if(paged is null){ _items=[]; _totalCount=0; _totalPages=1;} else { _items=paged.Items.ToList(); _totalCount=paged.TotalCount; _totalPages=Math.Max(1,paged.TotalPages);} if(_page> _totalPages){ _page=_totalPages; await LoadAsync(); return;} ApplyLocal(); } catch(Inventa.Web.Models.Api.ApiException ex){ if(gen!=_loadGen) return; _error=ex.ToApiError(); if(ex.StatusCode==401) Snackbar.Add("Sesión expirada", Severity.Warning);} catch(OperationCanceledException){} catch(Exception ex){ if(gen!=_loadGen) return; _error=new(){StatusCode=0, Title="Error", Detail=ex.Message};} finally{ if(gen==_loadGen){ _loading=false; StateHasChanged();}} }
+    private void ApplyLocal(){ var q=_items.AsEnumerable(); if(_fActivo.HasValue) q=q.Where(l=> l.Activo==_fActivo.Value); _displayed=q.ToList(); _pageStart=_totalCount==0?0:(_page-1)*_pageSize; _pageEnd=Math.Min(_pageStart+_items.Count,_totalCount); }
+    private string LoteEstado(Inventa.Web.Models.Inventario.LoteDto l){ if(!l.FecVen.HasValue) return "Sin vence"; var d=l.FecVen.Value.DayNumber - DateOnly.FromDateTime(DateTime.Today).DayNumber; return d<0?"Vencido": d<=30?"Próximo":"Vigente"; }
+    private async Task Reload(){ _page=1; await LoadAsync(); }
+    private async Task OnSearchDebounced(string v){ _search=v??""; _page=1; await LoadAsync(); }
+    private void OnActivoChanged(bool? v){ _fActivo=v; ApplyLocal(); StateHasChanged(); }
+    private async Task OnPageChanged(int p){ _page=p; await LoadAsync(); }
+    private async Task OnPageSizeChanged(int s){ _pageSize=s; _page=1; await LoadAsync(); }
+    public void Dispose(){ TenantCtx.OnTenantChanged-=OnTenantChanged; _cts?.Cancel(); _cts?.Dispose(); }
+}

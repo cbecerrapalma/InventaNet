@@ -1,0 +1,82 @@
+@page "/catalogos/atributos"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Catalogos.CatalogosApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService Perms
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@implements IDisposable
+
+<PageHeader Title="Atributos" Description="Atributos y valores definidos para cada categoría." Icon="@Icons.Material.Filled.Tune" />
+
+@if(!_checked){<LoadingState />}
+else if(!_allowed){<Forbidden />}
+else if(_loadingCats){<LoadingState Message="Cargando categorías..." />}
+else if(_errorCats is not null){<ErrorState Title="@_errorCats.Title" Detail="@_errorCats.Detail" CorrelationId="@_errorCats.CorrelationId" OnRetry="LoadCats" />}
+else
+{
+    <MudPaper Class="pa-3 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="6"><MudSelect T="long" Value="_selCat" ValueChanged="OnCatChanged" Label="Categoría" Variant="Variant.Outlined" Dense="true" Required="true">
+                @foreach(var c in _cats){<MudSelectItem Value="@c.IdCategoria">@c.Nombre (@c.Codigo)</MudSelectItem>}
+            </MudSelect></MudItem>
+            <MudItem xs="12" md="6" Class="d-flex justify-end align-center"><MudChip T="string" Color="Color.Info" Size="Size.Small">Solo lectura</MudChip><MudTooltip Text="Actualizar"><MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="Reload" Class="ml-2" aria-label="Actualizar" /></MudTooltip></MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @if(_selCat==0){<MudAlert Severity="Severity.Info">Seleccione una categoría para ver sus atributos.</MudAlert>}
+    else if(_loadingAtri){<LoadingState Message="Cargando atributos..." />}
+    else if(_errorAtri is not null){<ErrorState Title="@_errorAtri.Title" Detail="@_errorAtri.Detail" CorrelationId="@_errorAtri.CorrelationId" OnRetry="LoadAtri" />}
+    else if(_atris.Count==0){<EmptyState Title="Sin atributos" Description="No existen atributos definidos para esta categoría." Icon="@Icons.Material.Filled.Tune" />}
+    else
+    {
+        <MudExpansionPanels MultiExpansion="true" Elevation="0">
+        @foreach(var a in _atris)
+        {
+            <MudExpansionPanel Text="@($"{a.Nombre} ({a.Codigo}) — {(a.EsOblig?"Obligatorio":"Opcional")} ")">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@(a.Activo?"Activo":"Inactivo") · @FormatoCl.Miles(a.Valores.Count) valores</MudText>
+                @if(a.Valores.Count==0){<MudAlert Severity="Severity.Info" Class="mt-2">Sin valores.</MudAlert>}
+                else{
+                    <MudTable Items="@a.Valores.OrderBy(v=>v.Orden)" Dense="true" Hover="true" Elevation="0" Bordered="true" Class="mt-2 inv-tabla-compacta">
+                        <HeaderContent><MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Orden</MudTh><MudTh>Estado</MudTh></HeaderContent>
+                        <RowTemplate><MudTd DataLabel="Código"><b>@context.Codigo</b></MudTd><MudTd DataLabel="Nombre">@context.Nombre</MudTd><MudTd DataLabel="Orden">@FormatoCl.Miles(context.Orden)</MudTd><MudTd DataLabel="Estado"><MudChip T="string" Size="Size.Small" Color="@(context.Activo?Color.Success:Color.Default)">@(context.Activo?"Activo":"Inactivo")</MudChip></MudTd></RowTemplate>
+                    </MudTable>
+                }
+            </MudExpansionPanel>
+        }
+        </MudExpansionPanels>
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Mostrando @FormatoCl.Miles(_atris.Count) atributos.</MudText>
+    }
+}
+@code{
+    private bool _checked,_allowed; private bool _loadingCats=true; private Inventa.Web.Models.Api.ApiError? _errorCats;
+    private List<Inventa.Web.Models.Catalogos.CategoriaDto> _cats=[]; private long _selCat;
+    private List<Inventa.Web.Models.Catalogos.AtriDefDto> _atris=[]; private bool _loadingAtri; private Inventa.Web.Models.Api.ApiError? _errorAtri;
+    private CancellationTokenSource? _cts;
+    protected override async Task OnInitializedAsync(){
+        _allowed=await Perms.HasPermissionAsync("INVENTA_CATALOGOS_ATRIBUTOS_VER");
+        _checked=true; if(!_allowed) return;
+        TenantCtx.OnTenantChanged+= OnTenantChanged;
+        await LoadCats();
+    }
+    private void OnTenantChanged(int? localId, int? passPlatId){ _ = OnTenantChangedAsync(localId); }
+    private async Task OnTenantChangedAsync(int? localId){ await InvokeAsync(async()=>{ _cats.Clear(); _atris.Clear(); _selCat=0; _loadingCats=true; StateHasChanged(); await LoadCats(); StateHasChanged();});}
+    private async Task LoadCats(){
+        _loadingCats=true; _errorCats=null; StateHasChanged();
+        try{
+            _cats = await Svc.GetCategoriasAsync(CancellationToken.None) ?? [];
+            if(_cats.Count>0){ _selCat=_cats[0].IdCategoria; await LoadAtri(); }
+        }catch(Inventa.Web.Models.Api.ApiException ex){_errorCats=ex.ToApiError();}
+        finally{_loadingCats=false; StateHasChanged();}
+    }
+    private async Task OnCatChanged(long v){ _selCat=v; await LoadAtri();}
+    private async Task LoadAtri(){
+        if(_selCat==0) return;
+        _cts?.Cancel(); _cts=new();
+        _loadingAtri=true; _errorAtri=null; StateHasChanged();
+        try{ _atris = await Svc.GetAtributosAsync((int)_selCat, _cts.Token) ?? []; }
+        catch(Inventa.Web.Models.Api.ApiException ex){_errorAtri=ex.ToApiError();}
+        catch(OperationCanceledException){}
+        finally{_loadingAtri=false; StateHasChanged();}
+    }
+    private async Task Reload(){ await LoadCats();}
+    public void Dispose(){ TenantCtx.OnTenantChanged-=OnTenantChanged; _cts?.Cancel(); _cts?.Dispose(); }
+}

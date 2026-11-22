@@ -1,0 +1,116 @@
+@page "/login"
+@inject NavigationManager Nav
+@inject IStoreAuthService Auth
+@inject StoreAuthenticationStateProvider AuthState
+@inject StorefrontState SfState
+
+<PageTitle>Ingresar | @_storeName</PageTitle>
+<HeadContent>
+    <meta name="description" content="Inicia sesión en tu cuenta para acceder a tus pedidos y preferencias." />
+</HeadContent>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="pa-4">
+    <MudCard Elevation="1" Class="pa-6">
+        <MudText Typo="Typo.h5" Style="font-weight:600;" Class="mb-4" Align="Align.Center" HtmlTag="h1">Ingresar a tu cuenta</MudText>
+
+        <EditForm Model="_model" OnValidSubmit="HandleSubmit" data-testid="store-login-form">
+            <DataAnnotationsValidator />
+
+            <MudTextField @bind-Value="_model.Identificador"
+                          Label="Correo o usuario"
+                          Placeholder="usuario@ejemplo.cl"
+                          Required
+                          RequiredError="Ingresa tu correo o usuario"
+                          For="@(() => _model.Identificador)"
+                          Class="mb-3"
+                          autocomplete="username"
+                          data-testid="store-login-identificador" />
+
+            <MudTextField @bind-Value="_model.Password"
+                          Label="Contraseña"
+                          InputType="InputType.Password"
+                          Required
+                          RequiredError="Ingresa tu contraseña"
+                          For="@(() => _model.Password)"
+                          Class="mb-3"
+                          autocomplete="current-password"
+                          data-testid="store-login-password" />
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-3" data-testid="store-login-error">@_error</MudAlert>
+            }
+
+            @* MudBlazor 9: el parámetro es ButtonType (Type es ilegal: MUD0002 y no hace submit). *@
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" ButtonType="ButtonType.Submit" FullWidth="true" Disabled="_submitting" Class="mt-2" Size="Size.Large" data-testid="store-login-submit">
+                <MudIcon Icon="@Icons.Material.Filled.Login" Size="Size.Small" Class="me-1" />
+                Ingresar
+            </MudButton>
+
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Align="Align.Center" Class="mt-3" HtmlTag="p" data-testid="store-login-help">
+                ¿Problemas para ingresar? Comunícate con la tienda.
+            </MudText>
+        </EditForm>
+    </MudCard>
+</MudContainer>
+
+@code {
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+
+    private sealed class LoginModel
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(256, MinimumLength = 1)]
+        public string Identificador { get; set; } = "";
+
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(128, MinimumLength = 1)]
+        public string Password { get; set; } = "";
+    }
+
+    private LoginModel _model = new();
+    private string _error = "";
+    private bool _submitting;
+    private string _storeName = "Inventa";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var profile = await SfState.GetAsync();
+            _storeName = SfState.DisplayName(profile);
+        }
+        catch { }
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (_submitting) return;
+        _submitting = true;
+        _error = "";
+
+        try
+        {
+            var result = await Auth.LoginAsync(_model.Identificador.Trim(), _model.Password);
+            if (result.Success)
+            {
+                AuthState.NotifyUserChanged();
+                var target = StoreReturnUrl.Sanitize(ReturnUrl);
+                Nav.NavigateTo(target, forceLoad: false);
+            }
+            else
+            {
+                // S96 D2: mismo mensaje que backoffice para PWD_EXPIRADA
+                var upstream = result.Problem?.Upstream;
+                _error = string.Equals(upstream, "PWD_EXPIRADA", StringComparison.OrdinalIgnoreCase)
+                    ? "Tu contraseña venció. Pide a la tienda que la restablezca."
+                    : StoreAuthMessages.GetMessage(result.Problem?.Code);
+            }
+        }
+        finally
+        {
+            _submitting = false;
+            StateHasChanged();
+        }
+    }
+}

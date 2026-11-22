@@ -1,0 +1,108 @@
+@page "/clientes/{Id}"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Clientes.ClientesApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageHeader Title="Detalle Cliente" Description="Ficha del cliente." Icon="@Icons.Material.Filled.People" />
+
+@if (!_checked) { <LoadingState /> }
+else if (!_allowed) { <Forbidden /> }
+else if (_loading) { <LoadingState Message="Cargando cliente..." /> }
+else if (_error is not null)
+{
+    <ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Reload" />
+}
+else if (_cliente is null)
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-3">Cliente no encontrado.</MudAlert>
+    <MudButton Color="Color.Primary" Href="/clientes" StartIcon="@Icons.Material.Filled.ArrowBack">Volver al listado</MudButton>
+}
+else
+{
+    <MudPaper Class="pa-4 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+            <MudText Typo="Typo.h6">@_cliente.Nombre</MudText>
+            @if (_canEdit)
+            {
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Edit" OnClick="OpenEdit" aria-label="Editar cliente">Editar</MudButton>
+            }
+        </MudStack>
+        <MudGrid Spacing="3" data-testid="ficha-cliente">
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Código</MudText><MudText>@_cliente.Codigo</MudText></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">RUT</MudText><MudText>@(string.IsNullOrWhiteSpace(_cliente.RUT) ? "—" : _cliente.RUT)</MudText></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Estado</MudText><MudChip T="string" Size="Size.Small" Color="@(_cliente.Activo?Color.Success:Color.Default)">@(_cliente.Activo?"Activo":"Inactivo")</MudChip></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Tipo de cliente</MudText><MudText>@TipoNombre(_cliente.TipoCliente)</MudText></MudItem>
+            <MudItem xs="12" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Email</MudText><MudText Style="overflow-wrap:anywhere">@(string.IsNullOrWhiteSpace(_cliente.Email) ? "—" : _cliente.Email)</MudText></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Teléfono</MudText><MudText>@(string.IsNullOrWhiteSpace(_cliente.Telefono) ? "—" : _cliente.Telefono)</MudText></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Creación</MudText><MudText>@FormatoCl.FechaHora(_cliente.FecCrea)</MudText></MudItem>
+            <MudItem xs="12"><MudText Typo="Typo.caption" Color="Color.Secondary">Dirección</MudText><MudText>@(string.IsNullOrWhiteSpace(_cliente.Direccion) ? "—" : _cliente.Direccion)</MudText></MudItem>
+        </MudGrid>
+    </MudPaper>
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" Href="/clientes">Volver</MudButton>
+}
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    [CascadingParameter] public Inventa.Web.Shared.MigaContexto? Miga { get; set; }
+    // S115 D4: nombres de TipoCliente (ClienteRepositoryAsync.cs:33).
+    private static string TipoNombre(byte t) => t switch { 1 => "Público general", 2 => "Frecuente", 3 => "Mayorista", 4 => "Corporativo", _ => "—" };
+    private bool _checked; private bool _allowed; private bool _canEdit;
+    private bool _loading = true;
+    private Inventa.Web.Models.Api.ApiError? _error;
+    private Inventa.Web.Models.Clientes.ClienteDto? _cliente;
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allowed = await PermsService.HasPermissionAsync("INVENTA_CLIENTES_DETALLE_VER");
+        _canEdit = await PermsService.HasPermissionAsync("INVENTA_CLIENTES_DETALLE_EDITAR");
+        _checked = true;
+        if (!_allowed) return;
+        TenantCtx.OnTenantChanged += OnTenantChanged;
+        await LoadAsync();
+    }
+    private void OnTenantChanged(int? localId, int? passPlatId){ _ = OnTenantChangedAsync(localId); }
+    private async Task OnTenantChangedAsync(int? localId)
+    {
+        _cliente = null;
+        await InvokeAsync(async ()=>{ _loading=true; StateHasChanged(); await LoadAsync(); StateHasChanged(); });
+    }
+    private async Task LoadAsync()
+    {
+        if (!int.TryParse(Id, out var id))
+        {
+            _cliente = null; _loading=false; return;
+        }
+        _cts?.Cancel(); _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            _cliente = await Svc.GetByIdAsync(id, ct);
+            Miga?.Definir($"/clientes/{id}", _cliente?.Nombre);
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex)
+        {
+            if (ex.StatusCode == 404) { _cliente = null; }
+            else { _error = ex.ToApiError(); if (ex.StatusCode == 401) Snackbar.Add("Sesión expirada", Severity.Warning); }
+        }
+        catch (OperationCanceledException) {}
+        catch (Exception ex){ _error = new(){StatusCode=0, Title="Error", Detail=ex.Message}; }
+        finally{ _loading=false; StateHasChanged(); }
+    }
+    private async Task Reload()=> await LoadAsync();
+    private async Task OpenEdit()
+    {
+        if (_cliente is null) return;
+        var pars = new DialogParameters{ ["Model"] = _cliente };
+        var dlg = await Dialogs.ShowAsync<Inventa.Web.Shared.Client.ClienteFormDialog>("Editar cliente", pars);
+        var r = await dlg.Result;
+        if (r is not null && !r.Canceled) await LoadAsync();
+    }
+    public void Dispose(){ TenantCtx.OnTenantChanged-=OnTenantChanged; _cts?.Cancel(); _cts?.Dispose(); }
+}

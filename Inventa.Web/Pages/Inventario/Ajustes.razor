@@ -1,0 +1,43 @@
+@page "/inventario/ajustes"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageHeader Title="Ajustes" Description="Ajustes de inventario." Icon="@Icons.Material.Filled.Build">
+    <Actions>
+        @if (_canAjustar){<MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Build" OnClick="OpenDialog" aria-label="Nuevo ajuste">Ajustar</MudButton>}
+    </Actions>
+</PageHeader>
+
+@if (!_checked){<LoadingState />}
+else if (!_allowed){<Forbidden />}
+else
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3" data-testid="ajustes-ayuda">
+        Cantidad positiva = entrada; negativa = salida. La cantidad no puede ser 0.
+        @if (!_canAjustar){<MudText Typo="Typo.caption" Class="mt-1">No tienes permiso para registrar ajustes: solo lectura.</MudText>}
+    </MudAlert>
+    <MudPaper Class="pa-4" Elevation="0" Style="border:1px dashed var(--mud-palette-lines-default)">
+        <MudStack AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.Build" Size="Size.Large" Color="Color.Warning" />
+            <MudText Typo="Typo.h6">Ajustes de inventario</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Align="Align.Center">Merma, rotura o diferencias del conteo físico.</MudText>
+            @if (_canAjustar){<MudButton Color="Color.Warning" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenDialog" aria-label="Nuevo ajuste">Nuevo ajuste</MudButton>}
+        </MudStack>
+    </MudPaper>
+    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Los ajustes registrados aparecen en <MudLink Href="/inventario/movimientos">Movimientos</MudLink> (tipo Ajuste entrada o Ajuste salida).</MudText>
+}
+
+@code{
+    private bool _checked,_allowed,_canAjustar;
+    protected override async Task OnInitializedAsync(){
+        _allowed=await PermsService.HasPermissionAsync("INVENTA_INVENTARIO_AJUSTES_VER");
+        _canAjustar=await PermsService.HasPermissionAsync("INVENTA_INVENTARIO_AJUSTES_AJUSTAR");
+        _checked=true;
+    }
+    private async Task OpenDialog(){
+        var dlg=await Dialogs.ShowAsync<Inventa.Web.Shared.Inventory.AdjustInventoryDialog>("Ajustar inventario", new DialogOptions{ MaxWidth=MaxWidth.Medium, FullWidth=true });
+        var r=await dlg.Result; if(r is not null && !r.Canceled) Snackbar.Add("Ajuste registrado — verifique Stock/Movimientos.",Severity.Success);
+    }
+}

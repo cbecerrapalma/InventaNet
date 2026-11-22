@@ -1,0 +1,37 @@
+@page "/importaciones/nueva"
+@using Inventa.Web.Shared.Importacion
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+
+<PageHeader Title="Nueva importación de productos" Description="Valida y aplica un archivo Excel de productos." Icon="@Icons.Material.Filled.CloudUpload" OnBack="@(() => Nav.NavigateTo("/importaciones"))" />
+
+@if (!_checked)
+{
+    <LoadingState />
+}
+else if (!_allowed)
+{
+    <Forbidden />
+}
+else
+{
+    <AsistenteImportacion Titulo="Importar productos" Descripcion="Descarga la plantilla de productos, complétala (una fila por variante; las presentaciones las crea el sistema) y súbela para validarla antes de aplicar." OnAplicado="OnAplicado" />
+}
+
+@code {
+    private bool _checked;
+    private bool _allowed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allowed = await PermsService.HasPermissionAsync("INVENTA_IMPORTACIONES_NUEVA_VER") && await PermsService.HasPermissionAsync("INVENTA_IMPORTACIONES_NUEVA_CREAR");
+        _checked = true;
+    }
+
+    private Task OnAplicado(long id)
+    {
+        Nav.NavigateTo($"/importaciones/{id}");
+        return Task.CompletedTask;
+    }
+}

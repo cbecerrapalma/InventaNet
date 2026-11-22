@@ -1,0 +1,13 @@
+@* S62.3 botón flotante de WhatsApp: solo se renderiza con Url válida. *@
+@if (!string.IsNullOrWhiteSpace(Url))
+{
+    <a class="store-fab" href="@Url" target="_blank" rel="noopener noreferrer" aria-label="Escribir por WhatsApp (se abre en una pestaña nueva)" data-testid="store-whatsapp-fab">
+        <MudIcon Icon="@Icons.Custom.Brands.WhatsApp" aria-hidden="true" />
+        <span class="store-fab__label">WhatsApp</span>
+    </a>
+}
+
+@code {
+    // S62.3 MainLayout construye la URL con StoreLinks.WhatsAppUrl; null = no render.
+    [Parameter] public string? Url { get; set; }
+}

@@ -1,0 +1,205 @@
+@page "/importaciones/{id:long}"
+@using Inventa.Web.Models.Api
+@using Inventa.Web.Models.Importacion
+@using Inventa.Web.Shared.Importacion
+@attribute [Authorize]
+@inject Inventa.Web.Services.Importacion.ImportacionApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject CBP.Blazor.Services.IFileDownloadService Descargas
+
+<PageHeader Title="@($"Lote #{_id}")" Description="@(_lote?.NombreArchivo ?? "")" Icon="@Icons.Material.Filled.Description" OnBack="@(() => Nav.NavigateTo("/importaciones"))" />
+
+@if (!_checked)
+{
+    <LoadingState />
+}
+else if (!_allowed)
+{
+    <Forbidden />
+}
+else if (_loading)
+{
+    <LoadingState Message="Cargando lote..." />
+}
+else if (_error is not null)
+{
+    <ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Reload" />
+}
+else if (_lote is null)
+{
+    <EmptyState Title="Lote no encontrado" Description="El lote no existe o no tienes acceso." Icon="@Icons.Material.Filled.Description" />
+}
+else
+{
+    <MudGrid Spacing="2" Class="mb-3">
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+                <MudText Typo="Typo.h6">Resumen</MudText>
+                <MudDivider Class="my-2" />
+                <MudStack Spacing="1">
+                    <MudText><b>Estado:</b> @EstadoLoteUi.Texto(_lote.Estado)</MudText>
+                    <MudText><b>Tipo:</b> @EstadoLoteUi.Tipo(_lote.Tipo)</MudText>
+                    <MudText><b>Archivo:</b> @_lote.NombreArchivo</MudText>
+                    <MudText><b>Filas:</b> @FormatoCl.Miles(_lote.Filas) (@FormatoCl.Miles(_lote.Nuevos) nuevas, @FormatoCl.Miles(_lote.Existentes) existentes)</MudText>
+                    <MudText><b>Productos:</b> @FormatoCl.Miles(_lote.Productos)</MudText>
+                    <MudText><b>Variantes:</b> @FormatoCl.Miles(_lote.Variantes)</MudText>
+                    <MudText><b>Errores:</b> @FormatoCl.Miles(_lote.Errores)</MudText>
+                    <MudText><b>Advertencias:</b> @FormatoCl.Miles(_lote.Advertencias)</MudText>
+                    <MudText><b>Creado:</b> @FormatoCl.FechaHora(_lote.FecCrea.ToLocalTime())</MudText>
+                    @if (_lote.FecAplicada.HasValue)
+                    {
+                        <MudText><b>Aplicado el:</b> @FormatoCl.FechaHora(_lote.FecAplicada.Value.ToLocalTime())</MudText>
+                    }
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+                <MudText Typo="Typo.h6">Acciones</MudText>
+                <MudDivider Class="my-2" />
+                <MudStack Spacing="2">
+                    @if (_lote.Errores + _lote.Advertencias > 0)
+                    {
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download" OnClick="DescargarReporteAsync" Disabled="@_descargandoReporte" aria-label="Descargar reporte" data-testid="btn-reporte">
+                            @(_descargandoReporte ? "Descargando..." : "Descargar reporte de incidencias")
+                        </MudButton>
+                    }
+                    @if (_lote.Estado == "Validado")
+                    {
+                        @if (_lote.Cambios is { } c)
+                        {
+                            <MudText Typo="Typo.body2" data-testid="texto-confirmacion">Se crearán @FormatoCl.Miles(c.Nuevos) variantes y se modificarán @FormatoCl.Miles(c.Modificados). Los precios anteriores quedan en el historial y nada se elimina.</MudText>
+                            @if (c.Modificados > 0)
+                            {
+                                <MudCheckBox T="bool" @bind-Value="_confirma" Label="Entiendo que los valores actuales se reemplazan por los del archivo." data-testid="chk-existentes" />
+                            }
+                        }
+                        <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.CheckCircle" OnClick="AplicarAsync" Disabled="@(_aplicando || ((_lote.Cambios?.Modificados ?? 0) > 0 && !_confirma))" aria-label="Aplicar lote" data-testid="btn-aplicar">
+                            @(_aplicando ? "Aplicando..." : "Aplicar lote")
+                        </MudButton>
+                    }
+                    else if (_lote.Estado == "Aplicado")
+                    {
+                        <MudAlert Severity="Severity.Success" data-testid="lote-aplicado">Este lote ya fue aplicado.</MudAlert>
+                    }
+                    else if (_lote.Estado == "ConErrores" && SinCambios is { } sinCambios)
+                    {
+                        <MudAlert Severity="Severity.Info" data-testid="lote-sin-cambios">@sinCambios.Mensaje</MudAlert>
+                    }
+                    else if (_lote.Estado == "ConErrores")
+                    {
+                        <MudAlert Severity="Severity.Warning" data-testid="lote-con-errores">Este lote tiene errores y no se puede aplicar. Descarga el reporte, corrige el archivo y súbelo de nuevo.</MudAlert>
+                    }
+                </MudStack>
+                @if (_aplicarError is not null)
+                {
+                    <MudAlert Severity="Severity.Error" Class="mt-2" data-testid="aplicar-error">@_aplicarError</MudAlert>
+                }
+                @if (_aplicado)
+                {
+                    <MudAlert Severity="Severity.Success" Class="mt-2" data-testid="aplicado-ok">Lote aplicado correctamente.</MudAlert>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    @* S91.4: vista previa (antes de aplicar) y auditoría (después) de los cambios del lote. *@
+    @if (_lote.Cambios is { } cambios && SinCambios is null)
+    {
+        <TarjetaCambios Resumen="@cambios" />
+        <div class="mb-3"><TablaCambios LoteId="@_lote.Id" Resumen="@cambios" TestId="tabla-cambios-lote" /></div>
+    }
+    else if (_lote.Estado != "ConErrores")
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3" data-testid="cambios-no-disponible">Este lote es anterior a la vista de cambios.</MudAlert>
+    }
+    @if (_lote.Incidencias.Count > 0)
+    {
+        <TablaIncidencias Incidencias="@_lote.Incidencias" Total="@(_lote.Errores + _lote.Advertencias)" TestId="tabla-incidencias-lote" />
+    }
+}
+
+@code {
+    [Parameter] public long Id { get; set; }
+    [CascadingParameter] public Inventa.Web.Shared.MigaContexto? Miga { get; set; }
+
+    /// <summary>S118 D3: el lote no aporta cambios (regla del servidor); se informa en Acciones y no se muestra la vista de cambios.</summary>
+    private IncidenciaLoteDto? SinCambios => _lote?.Incidencias.FirstOrDefault(i => i.Codigo == "SIN_CAMBIOS");
+
+    private long _id;
+    private bool _confirma;
+    private bool _checked;
+    private bool _allowed;
+    private bool _loading = true;
+    private ApiError? _error;
+    private LoteDetalleDto? _lote;
+    private bool _descargandoReporte;
+    private bool _aplicando;
+    private string? _aplicarError;
+    private bool _aplicado;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _id = Id;
+        if (!_checked)
+        {
+            _allowed = await PermsService.HasPermissionAsync("INVENTA_IMPORTACIONES_DETALLE_VER") && await PermsService.HasPermissionAsync("INVENTA_IMPORTACIONES_DETALLE_CREAR");
+            _checked = true;
+        }
+        if (_allowed) await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            _lote = await Svc.GetLoteAsync(_id, CancellationToken.None);
+            Miga?.Definir($"/importaciones/{_id}", $"Lote #{_id}");
+        }
+        catch (ApiException ex) { _error = ex.ToApiError(); }
+        catch (HttpRequestException) { _error = new ApiError { Title = "Sin conexión", Detail = "No se pudo contactar al servidor. Intenta nuevamente.", StatusCode = 0 }; }
+        finally { _loading = false; }
+    }
+
+    private async Task Reload() => await LoadAsync();
+
+    private async Task DescargarReporteAsync()
+    {
+        _descargandoReporte = true;
+        try
+        {
+            var (bytes, contentType) = await Svc.DescargarReporteAsync(_id, CancellationToken.None);
+            await Descargas.DownloadAsync($"reporte_lote_{_id}.xlsx", contentType ?? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes);
+        }
+        catch (ApiException ex)
+        {
+            var err = ex.ToApiError();
+            Snackbar.Add(err.StatusCode == 404 ? "El lote no tiene reporte de errores." : (err.Detail ?? "No se pudo descargar el reporte."), Severity.Error);
+        }
+        finally { _descargandoReporte = false; }
+    }
+
+    private async Task AplicarAsync()
+    {
+        _aplicando = true; _aplicarError = null; _aplicado = false;
+        try
+        {
+            var r = await Svc.AplicarAsync(_id, CancellationToken.None);
+            if (r is null) { _aplicarError = "El servidor no devolvió el resultado."; return; }
+            _aplicado = true;
+            Snackbar.Add($"Lote #{_id} aplicado: {FormatoCl.Miles(r.ProductosNuevos)} nuevos, {FormatoCl.Miles(r.ProductosExistentes)} existentes actualizados.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            var err = ex.ToApiError();
+            _aplicarError = err.StatusCode == 409
+                ? (err.Detail ?? "Este lote ya fue aplicado o su aplicación anterior falló. Sube el archivo nuevamente para crear un lote nuevo.")
+                : err.Detail ?? err.Title ?? "No se pudo aplicar el lote.";
+        }
+        finally { _aplicando = false; }
+    }
+}

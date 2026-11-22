@@ -1,0 +1,100 @@
+@using Inventa.Web.Models.Compras
+@using Inventa.Web.Models.Bodegas
+@inject Inventa.Web.Services.Compras.ComprasApiService ComprasSvc
+@inject Inventa.Web.Services.Bodegas.BodegasApiService BodegaSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.body2" Color="Color.Secondary">Indique lo recibido y su costo unitario; el stock entra en la bodega destino.</MudText>
+            @if (_loading){<LoadingState Message="Cargando..." />}
+            else if (_orden is null){<MudAlert Severity="Severity.Warning">Orden no cargada.</MudAlert>}
+            else
+            {
+                <MudPaper Class="pa-2" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+                    <MudText Typo="Typo.subtitle2">@_orden.NumOrden — @EstadoNombre(_orden.Estado)</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@_orden.ProveedorNombre · @(FormatoCl.Fecha(_orden.FecOrden)) · Total @(FormatoCl.Moneda(_orden.Total))</MudText>
+                </MudPaper>
+                @if (_bodegas.Count==0){<MudAlert Severity="Severity.Warning">No hay bodegas — cree una.</MudAlert>}
+                else
+                {
+                    <MudSelect T="int" Value="_idBodega" ValueChanged="OnBodegaChanged" Label="Bodega destino" Variant="Variant.Outlined" Required="true" Dense="true" aria-label="Bodega destino">
+                        @foreach(var b in _bodegas){<MudSelectItem Value="@b.IdBodega">@b.Codigo - @b.Nombre</MudSelectItem>}
+                    </MudSelect>
+                }
+                @if (_orden.Detalles.Count==0)
+                {
+                    <MudAlert Severity="Severity.Info">La orden no tiene productos: no se puede recepcionar.</MudAlert>
+                }
+                else
+                {
+                    <MudText Typo="Typo.subtitle2">Productos a recibir</MudText>
+                    <MudTable Items="_items" Dense="true" Hover="true" Elevation="0" Bordered="true" data-testid="tabla-recepcion">
+                        <HeaderContent>
+                            <MudTh>Producto</MudTh><MudTh>Solicitada</MudTh><MudTh>Recibida</MudTh><MudTh>Costo unitario</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Producto">@context.Producto<br/><MudText Typo="Typo.caption" Color="Color.Secondary">@context.Codigo</MudText></MudTd>
+                            <MudTd DataLabel="Solicitada">@FormatoCl.Cantidad(context.CantSolicitada)</MudTd>
+                            <MudTd DataLabel="Recibida"><MudNumericField Culture="@FormatoCl.Cultura" @bind-Value="context.CantRecibida" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" Format="#,0.####" aria-label="Cant recibida" Style="max-width:120px" /></MudTd>
+                            <MudTd DataLabel="Costo unitario"><MudNumericField Culture="@FormatoCl.Cultura" @bind-Value="context.Costo" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" Format="N0" aria-label="Costo unitario" Style="max-width:130px" /></MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            }
+            @if (_error is not null){<MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_error.Detail<br/><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText></MudAlert>}
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_submitting || _loading || _items.Count==0" aria-label="Recepcionar">@(_submitting?"Recepcionando...":"Recepcionar")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code{
+    [CascadingParameter] IMudDialogInstance MudDialog{get;set;}=default!;
+    [Parameter] public long OrdenId{get;set;}
+    private OrdenCompraDto? _orden; private List<BodegaDto> _bodegas=[]; private bool _loading=true; private bool _submitting; private Inventa.Web.Models.Api.ApiError? _error;
+    private int _idBodega;
+    private List<ReceiveRow> _items=[];
+
+    // S117 D5: el producto por nombre (ficha ampliada en S116), sin ids internos ni lote (0 lotes, H5).
+    private class ReceiveRow{
+        public long IdOCDetalle{get;set;}
+        public string Producto{get;set;}="";
+        public string Codigo{get;set;}="";
+        public decimal CantSolicitada{get;set;}
+        public decimal CantRecibida{get;set;}
+        public decimal Costo{get;set;}
+    }
+
+    protected override async Task OnInitializedAsync(){
+        try{
+            var ord = await ComprasSvc.GetOrdenAsync(OrdenId, CancellationToken.None);
+            _orden = ord;
+            _bodegas = await BodegaSvc.ListAsync(CancellationToken.None) ?? [];
+            if(_bodegas.Count>0) _idBodega=_bodegas[0].IdBodega;
+            if(_orden is not null){
+                _items = _orden.Detalles.Select(d=> new ReceiveRow{ IdOCDetalle=d.IdOCDetalle, Producto=$"{d.ProdNombre} · {d.VarNombre}", Codigo=d.ProdCodigo, CantSolicitada=d.Cantidad, CantRecibida=d.Cantidad, Costo=d.PrecioUnitario }).ToList();
+            }
+        }catch{}
+        _loading=false;
+    }
+    private void OnBodegaChanged(int v)=> _idBodega=v;
+    private void Cancel()=> MudDialog.Cancel();
+    private string EstadoNombre(byte e)=> e switch{1=>"Pendiente",2=>"Aprobada",3=>"Recibida",4=>"Cancelada", _=>$"Estado {e}"};
+    private async Task Submit(){
+        if(_idBodega==0){Snackbar.Add("Seleccione bodega destino.",Severity.Warning);return;}
+        var payloadItems = _items.Where(r=> r.CantRecibida>0).Select(r=> new OCRecepcionItemSp{ IdOCDetalle=r.IdOCDetalle, IdLote=null, CantRecibida=r.CantRecibida, CostoUnitario=r.Costo }).ToList();
+        if(payloadItems.Count==0){Snackbar.Add("Indique al menos una cantidad recibida >0.",Severity.Warning);return;}
+        if(payloadItems.Any(i=> i.CantRecibida<0)){Snackbar.Add("Cant. recibida no puede ser negativa.",Severity.Warning);return;}
+        _submitting=true; _error=null; StateHasChanged();
+        try{
+            var dto=new RecepcionDto{ IdBodega=_idBodega, Items=payloadItems };
+            await ComprasSvc.RecepcionAsync(OrdenId, dto, CancellationToken.None);
+            Snackbar.Add("Recepción registrada.",Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); Snackbar.Add($"No fue posible recepcionar. Código de seguimiento: {_error.CorrelationId}",Severity.Error); }
+        finally{ _submitting=false; StateHasChanged(); }
+    }
+}

@@ -1,0 +1,124 @@
+@page "/configuracion/tenant"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Configuracion.ConfiguracionApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+<PageHeader Title="Configuración del tenant" Description="Parámetros operativos del tenant seleccionado." Icon="@Icons.Material.Filled.AdminPanelSettings" />
+
+@if (!_checked){<LoadingState />}
+else if (!_allowed){<Forbidden />}
+else if (_tenantId is null){<MudAlert Severity="Severity.Warning" Class="mb-3">Sin tenant seleccionado — seleccione uno en el selector superior.</MudAlert>}
+else if (_loading){<LoadingState Message="Cargando configuración del tenant..." />}
+else if (_error is not null){<ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="LoadAsync" />}
+else if (_dto is null){<EmptyState Title="Sin configuración tenant" Description="No existe configuración para este tenant. Contacte administrador." Icon="@Icons.Material.Filled.AdminPanelSettings" />}
+else
+{
+    <MudPaper Class="pa-4 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
+            <MudChip T="string" Color="Color.Secondary" Size="Size.Small" Icon="@Icons.Material.Filled.Group">TENANT</MudChip>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">IdTenant @(_dto.IdTenant) · aislado por tenant</MudText>
+        </MudStack>
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-3">Editables: <b>MaxBodegas, Moneda, TasaImpuesto, PermiteStockNegativo, PermiteVentaSinCliente</b> vía <code>PUT /api/tenants/{id}/config</code>. <b>DiasRetencionMov</b> solo lectura — retención futura, administrado por backend.</MudAlert>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="3"><MudNumericField Culture="@FormatoCl.Cultura" T="short" @bind-Value="_edit.MaxBodegas" Label="MaxBodegas" Variant="Variant.Outlined" Min="@((short)1)" Max="@((short)100)" Disabled="@(!_canEditar)" aria-label="MaxBodegas" HelperText="1–100 (editable)" /></MudItem>
+            <MudItem xs="12" md="3"><MudTextField @bind-Value="_edit.Moneda" Label="Moneda" Variant="Variant.Outlined" Required="true" MaxLength="10" Disabled="@(!_canEditar)" aria-label="Moneda" HelperText="Ej: CLP (texto libre)" /></MudItem>
+            <MudItem xs="12" md="3"><MudNumericField Culture="@FormatoCl.Cultura" T="decimal" @bind-Value="_tasaPct" Label="Tasa impuesto (%)" Variant="Variant.Outlined" Min="0" Max="100" Step="1" Format="#,0.##" Adornment="Adornment.End" AdornmentText="%" HideSpinButtons="true" Disabled="@(!_canEditar)" aria-label="Tasa impuesto en porcentaje" HelperText="0–100, ej 19 (= 0,19)" data-testid="tasa-pct" /></MudItem>
+            <MudItem xs="12" md="3"><MudSwitch @bind-Value="_edit.PermiteStockNegativo" Label="@(_edit.PermiteStockNegativo? "Permite stock negativo":"Bloquea stock negativo")" Color="Color.Primary" Disabled="@(!_canEditar)" aria-label="Permitir stock negativo" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField Value="@_dto.DiasRetencionMov.ToString()" Label="Días retención movimientos" Variant="Variant.Outlined" Disabled="true" aria-label="Días retención" HelperText="Configuración reservada para política futura de retención." /></MudItem>
+            <MudItem xs="12" md="6"><MudSwitch @bind-Value="_edit.PermiteVentaSinCliente" Label="@(_edit.PermiteVentaSinCliente == true ? "Permite venta sin cliente":"Requiere cliente")" Color="Color.Primary" Disabled="@(!_canEditar)" aria-label="Permitir venta sin cliente" /></MudItem>
+            <MudItem xs="12" md="6"><MudText Typo="Typo.caption" Color="Color.Secondary">FecMod</MudText><MudText Typo="Typo.body2">@FormatoCl.FechaHora(_dto.FecMod)</MudText></MudItem>
+            <MudItem xs="12" md="6"><MudText Typo="Typo.caption" Color="Color.Secondary">Última modificación por</MudText><MudText Typo="Typo.body2">@(_dto.UsuarioMod?.ToString() ?? "—")</MudText></MudItem>
+        </MudGrid>
+        @if (!_canEditar){<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-3">Modo solo lectura — requiere <code>INVENTA_CONFIG_EDITAR</code>. Guardar oculto.</MudAlert>}
+        else
+        {
+            <MudStack Row="true" Spacing="2" Class="mt-4">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="_submitting || !_isDirty" aria-label="Guardar configuración del tenant">@(_submitting? "Guardando...":"Guardar configuración del tenant")</MudButton>
+                <MudButton Variant="Variant.Outlined" OnClick="Reset" Disabled="_submitting || !_isDirty" aria-label="Cancelar">Cancelar</MudButton>
+                <MudTooltip Text="Actualizar"><MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="_submitting" aria-label="Actualizar" /></MudTooltip>
+            </MudStack>
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">No se envía PUT si no hay cambios (_isDirty). IdTenant tomado de TenantContext (@_tenantId).</MudText>
+        }
+        @if (_saveError is not null){<MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mt-3">@_saveError.Detail<br/><MudText Typo="Typo.caption">Correlation: @_saveError.CorrelationId</MudText></MudAlert>}
+    </MudPaper>
+}
+
+@code{
+    private bool _checked,_allowed,_canEditar; private bool _loading=true; private bool _submitting; private bool _isDirty;
+    private int? _tenantId;
+    private Inventa.Web.Models.Api.ApiError? _error; private Inventa.Web.Models.Api.ApiError? _saveError;
+    private Inventa.Web.Models.Configuracion.TenantConfigDto? _dto;
+    private Inventa.Web.Models.Configuracion.UpdateTenantConfigDto _edit = new(){ Moneda="CLP" };
+    // S93.3 (C4): la tasa se edita como % (19) y viaja como fracción (0,19).
+    private decimal _tasaPct
+    {
+        get => _edit.TasaImpuesto * 100m;
+        set => _edit.TasaImpuesto = Math.Round(value / 100m, 4, MidpointRounding.AwayFromZero);
+    }
+    private CancellationTokenSource? _cts;
+    protected override async Task OnInitializedAsync(){
+        _allowed=await PermsService.HasPermissionAsync("INVENTA_CONFIG_VER");
+        _canEditar=await PermsService.HasPermissionAsync("INVENTA_CONFIG_EDITAR");
+        _checked=true; if(!_allowed) return;
+        _tenantId = TenantCtx.CurrentTenantId;
+        TenantCtx.OnTenantChanged+=OnTenantChanged;
+        await LoadAsync();
+    }
+    private void OnTenantChanged(int? localId, int? passPlatId){ _ = OnTenantChangedAsync(localId); }
+    private async Task OnTenantChangedAsync(int? localId)
+    {
+        await InvokeAsync(async () =>
+        {
+            _tenantId = localId;
+            _dto = null; _error = null; _saveError = null; _isDirty = false;
+            _loading = true; StateHasChanged();
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
+    private async Task LoadAsync(){
+        if(_tenantId is null){ _loading=false; StateHasChanged(); return; }
+        _cts?.Cancel(); _cts=new CancellationTokenSource(); var ct=_cts.Token;
+        _loading=true; _error=null; _saveError=null; StateHasChanged();
+        try{
+            _dto = await Svc.GetTenantAsync(_tenantId.Value, ct);
+            if(_dto is not null){
+                _edit = new(){ MaxBodegas=_dto.MaxBodegas, PermiteStockNegativo=_dto.PermiteStockNegativo, Moneda=_dto.Moneda, TasaImpuesto=_dto.TasaImpuesto, PermiteVentaSinCliente=_dto.PermiteVentaSinCliente };
+                _isDirty=false;
+            }
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); if(ex.StatusCode==401) Snackbar.Add("Sesión expirada",Severity.Warning); }
+        catch(OperationCanceledException){} catch(Exception ex){ _error=new(){StatusCode=0, Title="Error", Detail=ex.Message};}
+        finally{ _loading=false; StateHasChanged(); }
+    }
+    private bool ComputeDirty(){
+        if(_dto is null) return false;
+        return _edit.MaxBodegas != _dto.MaxBodegas || _edit.PermiteStockNegativo != _dto.PermiteStockNegativo || _edit.Moneda != _dto.Moneda || _edit.TasaImpuesto != _dto.TasaImpuesto || _edit.PermiteVentaSinCliente != _dto.PermiteVentaSinCliente;
+    }
+    protected override void OnAfterRender(bool firstRender){
+        var d=ComputeDirty();
+        if(d!=_isDirty){ _isDirty=d; StateHasChanged(); }
+    }
+    private void Reset(){
+        if(_dto is null) return;
+        _edit = new(){ MaxBodegas=_dto.MaxBodegas, PermiteStockNegativo=_dto.PermiteStockNegativo, Moneda=_dto.Moneda, TasaImpuesto=_dto.TasaImpuesto, PermiteVentaSinCliente=_dto.PermiteVentaSinCliente };
+        _saveError=null; _isDirty=false;
+    }
+    private async Task Save(){
+        if(!_canEditar){ Snackbar.Add("Sin permiso INVENTA_CONFIG_EDITAR",Severity.Warning); return; }
+        if(_tenantId is null){ Snackbar.Add("Sin tenant seleccionado.",Severity.Warning); return; }
+        if(!ComputeDirty()){ Snackbar.Add("Sin cambios.",Severity.Info); return; }
+        if(_edit.MaxBodegas<1 || _edit.MaxBodegas>100){ Snackbar.Add("MaxBodegas 1–100.",Severity.Warning); return; }
+        if(string.IsNullOrWhiteSpace(_edit.Moneda)){ Snackbar.Add("Moneda requerida.",Severity.Warning); return; }
+        if(_edit.TasaImpuesto<0 || _edit.TasaImpuesto>1){ Snackbar.Add("Tasa 0–100 %.",Severity.Warning); return; }
+        _submitting=true; _saveError=null; StateHasChanged();
+        try{
+            var res=await Svc.UpdateTenantAsync(_tenantId.Value, _edit, _cts?.Token ?? CancellationToken.None);
+            if(res is not null){ _dto=res; _edit=new(){ MaxBodegas=res.MaxBodegas, PermiteStockNegativo=res.PermiteStockNegativo, Moneda=res.Moneda, TasaImpuesto=res.TasaImpuesto, PermiteVentaSinCliente=res.PermiteVentaSinCliente }; _isDirty=false; Snackbar.Add("Configuración del tenant actualizada.",Severity.Success); }
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _saveError=ex.ToApiError(); Snackbar.Add($"No fue posible guardar. Correlation: {_saveError.CorrelationId}",Severity.Error); }
+        finally{ _submitting=false; StateHasChanged(); }
+    }
+    public void Dispose(){ TenantCtx.OnTenantChanged-=OnTenantChanged; _cts?.Cancel(); _cts?.Dispose(); }
+}

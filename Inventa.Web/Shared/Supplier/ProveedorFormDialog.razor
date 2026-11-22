@@ -1,0 +1,64 @@
+@using Inventa.Web.Models.Proveedores
+@inject Inventa.Web.Services.Proveedores.ProveedoresApiService Svc
+@inject ISnackbar Snackbar
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">@(Model is null ? "Nuevo proveedor para el tenant actual." : $"Editando a {Model.RazonSocial}")</MudText>
+            <MudTextField @bind-Value="_model.Codigo" Label="Código" Variant="Variant.Outlined" Required="true" MaxLength="20" Immediate="true" aria-label="Código proveedor" />
+            <MudTextField @bind-Value="_model.RazonSocial" Label="Razón social" Variant="Variant.Outlined" Required="true" MaxLength="200" Immediate="true" aria-label="Razón social" />
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_error.Detail<br /><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText></MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="_submitting" aria-label="Guardar proveedor">@(_submitting ? "Guardando..." : "Guardar")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public ProveedorDto? Model { get; set; }
+    private CreateProveedorDto _model = new();
+    private bool _submitting;
+    private Inventa.Web.Models.Api.ApiError? _error;
+    protected override void OnInitialized()
+    {
+        if (Model is not null)
+        {
+            _model.Codigo = Model.Codigo;
+            _model.RazonSocial = Model.RazonSocial;
+        }
+    }
+    private void Cancel() => MudDialog.Cancel();
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_model.Codigo) || string.IsNullOrWhiteSpace(_model.RazonSocial))
+        {
+            Snackbar.Add("Complete código y razón social.", Severity.Warning); return;
+        }
+        _submitting = true; _error = null; StateHasChanged();
+        try
+        {
+            if (Model is null)
+            {
+                await Svc.CreateAsync(_model, CancellationToken.None);
+                Snackbar.Add("Proveedor creado.", Severity.Success);
+            }
+            else
+            {
+                await Svc.UpdateAsync(Model.IdProveedor, _model, CancellationToken.None);
+                Snackbar.Add("Proveedor actualizado.", Severity.Success);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex)
+        {
+            _error = ex.ToApiError();
+            Snackbar.Add($"No fue posible guardar. Código de seguimiento: {_error.CorrelationId}", Severity.Error);
+        }
+        finally { _submitting = false; StateHasChanged(); }
+    }
+}

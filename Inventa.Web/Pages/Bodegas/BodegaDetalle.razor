@@ -1,0 +1,52 @@
+@page "/bodegas/{Id}"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Bodegas.BodegasApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@implements IDisposable
+
+<PageHeader Title="Detalle Bodega" Description="Ficha de bodega." Icon="@Icons.Material.Filled.Warehouse" />
+
+@if (!_checked){<LoadingState />}
+else if (!_allowed){<Forbidden />}
+else if (_loading){<LoadingState Message="Cargando bodega..." />}
+else if (_error is not null){<ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Reload" />}
+else if (_bodega is null){<MudAlert Severity="Severity.Warning" Class="mb-3">Bodega no encontrada.</MudAlert><MudButton Color="Color.Primary" Href="/bodegas" StartIcon="@Icons.Material.Filled.ArrowBack">Volver</MudButton>}
+else
+{
+    <MudPaper Class="pa-4 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+            <MudText Typo="Typo.h6">@_bodega.Nombre</MudText>
+            @if (_canAdmin){<MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Edit" OnClick="OpenEdit" aria-label="Editar bodega">Editar</MudButton>}
+        </MudStack>
+        <MudGrid Spacing="3" data-testid="ficha-bodega">
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Código</MudText><MudText>@_bodega.Codigo</MudText></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Estado</MudText><MudChip T="string" Size="Size.Small" Color="@(_bodega.Activo?Color.Success:Color.Default)">@(_bodega.Activo?"Activo":"Inactivo")</MudChip></MudItem>
+        </MudGrid>
+        <MudAlert Severity="Severity.Info" Class="mt-3" Variant="Variant.Outlined">La cantidad máxima de bodegas se define en Configuración del tenant.</MudAlert>
+    </MudPaper>
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" Href="/bodegas">Volver</MudButton>
+}
+
+@code{
+    [Parameter] public string? Id{get;set;}
+    [CascadingParameter] public Inventa.Web.Shared.MigaContexto? Miga { get; set; }
+    private bool _checked,_allowed,_canAdmin; private bool _loading=true; private Inventa.Web.Models.Api.ApiError? _error; private Inventa.Web.Models.Bodegas.BodegaDto? _bodega; private CancellationTokenSource? _cts;
+    protected override async Task OnInitializedAsync(){ _allowed=await PermsService.HasPermissionAsync("INVENTA_BODEGAS_DETALLE_VER"); _canAdmin=await PermsService.HasPermissionAsync("INVENTA_BODEGAS_DETALLE_ADMIN"); _checked=true; if(!_allowed) return; TenantCtx.OnTenantChanged+=OnTenantChanged; await LoadAsync(); }
+    private void OnTenantChanged(int? localId, int? passPlatId){ _ = OnTenantChangedAsync(localId); }
+    private async Task OnTenantChangedAsync(int? localId){ _bodega=null; await InvokeAsync(async()=>{_loading=true; StateHasChanged(); await LoadAsync(); StateHasChanged();}); }
+    private async Task LoadAsync(){
+        if(!int.TryParse(Id,out var id)){_bodega=null; _loading=false; return;}
+        _cts?.Cancel(); _cts=new CancellationTokenSource(); var ct=_cts.Token;
+        _loading=true; _error=null; StateHasChanged();
+        try{ _bodega=await Svc.GetByIdAsync(id,ct); Miga?.Definir($"/bodegas/{id}", _bodega?.Nombre); }
+        catch(Inventa.Web.Models.Api.ApiException ex){ if(ex.StatusCode==404) _bodega=null; else { _error=ex.ToApiError(); if(ex.StatusCode==401) Snackbar.Add("Sesión expirada",Severity.Warning); } }
+        catch(OperationCanceledException){} catch(Exception ex){ _error=new(){StatusCode=0, Title="Error", Detail=ex.Message}; }
+        finally{ _loading=false; StateHasChanged(); }
+    }
+    private async Task Reload()=> await LoadAsync();
+    private async Task OpenEdit(){ if(_bodega is null) return; var pars=new DialogParameters{["Model"]=_bodega}; var dlg=await Dialogs.ShowAsync<Inventa.Web.Shared.Inventory.BodegaFormDialog>("Editar bodega",pars); var r=await dlg.Result; if(r is not null && !r.Canceled) await LoadAsync(); }
+    public void Dispose(){ TenantCtx.OnTenantChanged-=OnTenantChanged; _cts?.Cancel(); _cts?.Dispose(); }
+}

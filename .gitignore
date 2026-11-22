@@ -1,0 +1,67 @@
+# Lista blanca para GitHub (regla del dueño, 2026-11-17): solo se sube código C#
+# y los archivos comunes de una solución .NET para compilar y ejecutar.
+# Fuera: TypeScript, Python, PowerShell, SQL, Markdown, imágenes y datos sueltos,
+# logs, configuración de agentes IA. Fuente: D:\CODIGOS\IAFactory\plantillas\dotnet.gitignore
+
+# 1) Ignorar todo, pero seguir entrando a las carpetas.
+*
+!*/
+
+# 2) C# y Razor.
+!*.cs
+!*.razor
+!*.cshtml
+!*.razor.css
+!*.razor.js
+!*.cshtml.css
+!*.resx
+
+# 2b) README de la raíz (dueño, 2026-11-21); los demás .md siguen fuera.
+!/README.md
+
+# 3) Proyecto, solución y build.
+!.gitignore
+!.gitattributes
+!.editorconfig
+!*.csproj
+!*.slnx
+!*.sln
+!*.props
+!*.targets
+!global.json
+!nuget.config
+!NuGet.config
+!NuGet.Config
+
+# 4) Configuración de ejecución .NET.
+!appsettings.json
+!appsettings.*.json
+!**/Properties/launchSettings.json
+!*.ncconf
+
+# 5) Activos web de Blazor.
+!**/wwwroot/**
+
+# 6) Siempre fuera (va al final: gana sobre la lista blanca).
+appsettings.Development.json
+# Datos que la app guarda en wwwroot (storage local: imágenes y lotes subidos), no código.
+**/wwwroot/images/products/
+**/wwwroot/importaciones/
+**/wwwroot/uploads/
+[Bb]in/
+[Bb]in_*/
+[Oo]bj/
+artifacts/
+publish/
+[Tt]est[Rr]esults/
+test-results/
+node_modules/
+.vs/
+.vscode/
+.idea/
+.factory/
+.claude/
+.opencode/
+*.user
+*.suo
+*.log

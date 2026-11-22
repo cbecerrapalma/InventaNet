@@ -1,0 +1,123 @@
+@* S91.4: vista previa / auditoría de cambios de un lote de importación (paginación en el servidor).
+   Compartida por el asistente y el detalle del lote; reutilizable por futuras plantillas de Inventa. *@
+@using Inventa.Web.Models.Api
+@using Inventa.Web.Models.Importacion
+@inject Inventa.Web.Services.Importacion.ImportacionApiService Svc
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="2" Class="mb-2">
+    <MudText Typo="Typo.subtitle1" HtmlTag="h2">Cambios</MudText>
+    <MudSpacer />
+    <MudSelect T="string" Value="_accion" ValueChanged="OnAccionChanged" Label="Mostrar" Variant="Variant.Outlined" Margin="Margin.Dense"
+               Dense="true" Class="inv-filtro-incidencias" aria-label="Filtrar cambios" data-testid="filtro-cambios">
+        <MudSelectItem Value="@("")">Todas (@FormatoCl.Miles(Resumen.Nuevos + Resumen.Modificados + Resumen.SinCambios))</MudSelectItem>
+        <MudSelectItem Value="@("Modificado")">Modificadas (@FormatoCl.Miles(Resumen.Modificados))</MudSelectItem>
+        <MudSelectItem Value="@("Nuevo")">Nuevas (@FormatoCl.Miles(Resumen.Nuevos))</MudSelectItem>
+        <MudSelectItem Value="@("SinCambios")">Sin cambios (@FormatoCl.Miles(Resumen.SinCambios))</MudSelectItem>
+    </MudSelect>
+</MudStack>
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@_error</MudAlert>
+}
+else if (_pagina is { Disponible: false })
+{
+    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2" data-testid="cambios-no-disponible">El detalle por fila de este lote no está disponible; el resumen de cambios sí.</MudAlert>
+}
+else
+{
+    <MudTable Items="@(_pagina?.Items ?? [])" Dense="true" Hover="true" Elevation="0" Bordered="true" Loading="@_cargando" Class="inv-tabla-compacta" data-testid="@TestId">
+        <HeaderContent>
+            <MudTh>Fila</MudTh><MudTh>Producto</MudTh><MudTh>Variante</MudTh><MudTh>Acción</MudTh><MudTh>Cambios</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Fila">@context.Fila</MudTd>
+            <MudTd DataLabel="Producto">@context.CodigoProducto</MudTd>
+            <MudTd DataLabel="Variante">@context.CodigoVariante</MudTd>
+            <MudTd DataLabel="Acción">
+                <MudChip T="string" Size="Size.Small" Color="@ColorAccion(context.Accion)">@TextoAccion(context.Accion)</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Cambios">
+                @if (context.Accion == "Nuevo")
+                {
+                    <MudText Typo="Typo.body2">Se creará</MudText>
+                }
+                else if (context.Campos.Count == 0)
+                {
+                    <MudText Typo="Typo.body2">—</MudText>
+                }
+                else
+                {
+                    @foreach (var c in context.Campos)
+                    {
+                        <MudText Typo="Typo.body2"><b>@c.Campo:</b> @Valor(c.Actual) → @Valor(c.Nuevo)</MudText>
+                    }
+                }
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent><MudText Typo="Typo.body2">No hay filas con este filtro.</MudText></NoRecordsContent>
+    </MudTable>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Wrap="Wrap.Wrap" Spacing="2" Class="mt-2">
+        <MudSelect T="int" Value="_pageSize" ValueChanged="OnPageSizeChanged" Label="Por página" Variant="Variant.Outlined" Margin="Margin.Dense"
+                   Dense="true" Style="max-width:110px" aria-label="Filas por página de cambios">
+            <MudSelectItem Value="10">10</MudSelectItem>
+            <MudSelectItem Value="25">25</MudSelectItem>
+            <MudSelectItem Value="50">50</MudSelectItem>
+        </MudSelect>
+        <MudPagination Count="@TotalPaginas" Selected="_page" SelectedChanged="OnPageChanged" Color="Color.Primary" BoundaryCount="1" MiddleCount="1" aria-label="Paginación de cambios" />
+    </MudStack>
+}
+
+@code {
+    [Parameter, EditorRequired] public long LoteId { get; set; }
+    [Parameter, EditorRequired] public ResumenCambiosDto Resumen { get; set; } = new();
+    [Parameter] public string TestId { get; set; } = "tabla-cambios";
+
+    private CambiosPageDto? _pagina;
+    private string _accion = "";
+    private int _page = 1;
+    private int _pageSize = 10;
+    private bool _cargando;
+    private string? _error;
+    private long _cargadoPara;
+
+    private int TotalPaginas => Math.Max(1, (int)Math.Ceiling((_pagina?.Total ?? 0) / (double)_pageSize));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_cargadoPara == LoteId) return;
+        _cargadoPara = LoteId;
+        _accion = Resumen.Modificados > 0 ? "Modificado" : "";
+        _page = 1;
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        _cargando = true; _error = null;
+        try { _pagina = await Svc.GetCambiosAsync(LoteId, _accion, _page, _pageSize, CancellationToken.None); }
+        catch (ApiException ex) { _error = ex.ToApiError().Detail ?? "No se pudieron cargar los cambios."; }
+        catch (HttpRequestException) { _error = "Sin conexión: no se pudieron cargar los cambios."; }
+        finally { _cargando = false; }
+    }
+
+    private async Task OnAccionChanged(string v) { _accion = v; _page = 1; await CargarAsync(); }
+    private async Task OnPageChanged(int p) { _page = p; await CargarAsync(); }
+    private async Task OnPageSizeChanged(int s) { _pageSize = s; _page = 1; await CargarAsync(); }
+
+    private static string Valor(string v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
+
+    private static string TextoAccion(string a) => a switch
+    {
+        "Nuevo" => "Nueva",
+        "Modificado" => "Modificada",
+        _ => "Sin cambios",
+    };
+
+    private static Color ColorAccion(string a) => a switch
+    {
+        "Nuevo" => Color.Success,
+        "Modificado" => Color.Info,
+        _ => Color.Default,
+    };
+}

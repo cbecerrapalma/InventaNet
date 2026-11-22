@@ -1,0 +1,73 @@
+@* S71 card reutilizable: toda la card es un enlace accesible (sin @onclick, sin JS inline).
+   U7: placeholder con texto "Sin imagen", aspect-ratio 1/1, meta en normal, precio con "Desde" antes. *@
+@using Inventa.Store.Models
+@using Inventa.Store.Services
+@inject StorefrontState SfState
+
+<a href="@($"/productos/{Producto.IdProd}")" class="@(Compacta ? "store-card store-card--compact" : "store-card")" data-testid="product-card" aria-label="@Producto.Nombre">
+    <span class="store-card__media">
+        @if (!string.IsNullOrWhiteSpace(Producto.ImagenUrl))
+        {
+            <img src="@ResolvedImageUrl" alt="@AltText()" class="store-card__img" loading="lazy" data-testid="store-product-image" />
+        }
+        else
+        {
+            <span class="store-card__placeholder" data-testid="store-image-placeholder" aria-hidden="true">
+                <MudIcon Icon="@Icons.Material.Filled.ImageNotSupported" Class="store-card__placeholder-icon" />
+                <span class="store-card__placeholder-text">Sin imagen</span>
+            </span>
+        }
+        @if (Producto.PctDescuento.HasValue)
+        {
+            <span class="store-card__badge" data-testid="store-card-discount">-@FormatoCl.Porcentaje(Producto.PctDescuento)</span>
+        }
+        else if (Producto.TieneOferta)
+        {
+            <span class="store-card__badge" data-testid="store-card-offer">Oferta</span>
+        }
+    </span>
+    <span class="store-card__body">
+        <span class="store-card__meta">@Producto.CategoriaNombre@(Producto.MarcaNombre != null ? $" · {Producto.MarcaNombre}" : "")</span>
+        <span class="store-card__name">@Producto.Nombre</span>
+        <span class="store-card__code">@Producto.Codigo</span>
+        <span class="store-card__price" data-testid="store-card-price">
+            @if (Producto.PrecioFinalDesde.HasValue)
+            {
+                <span class="store-card__final @(Producto.TieneOferta ? "price-oferta" : "price-publico")" data-testid="store-card-final">
+                    <span class="store-card__from">Desde </span>
+                    @FormatoCl.Moneda(Producto.PrecioFinalDesde.Value, Moneda)
+                </span>
+                @if (Producto.PrecioReferencia.HasValue)
+                {
+                    <span class="store-card__reference" data-testid="store-card-reference"><span class="sr-only">Precio anterior: </span>@FormatoCl.Moneda(Producto.PrecioReferencia.Value, Moneda)</span>
+                }
+            }
+            else if (Producto.PrecioDesde.HasValue)
+            {
+                <span class="store-card__final @(Producto.TieneOferta ? "price-oferta" : "price-publico")" data-testid="store-card-legacy">
+                    <span class="store-card__from">Desde </span>
+                    @FormatoCl.Moneda(Producto.PrecioDesde.Value, Moneda)
+                </span>
+            }
+            else
+            {
+                <span class="store-card__noprice" data-testid="store-card-noprice">Precio a consultar</span>
+            }
+        </span>
+    </span>
+</a>
+
+@code {
+    [Parameter, EditorRequired] public PublicProductDto Producto { get; set; } = default!;
+    [Parameter] public string Moneda { get; set; } = "CLP";
+    [Parameter] public bool Compacta { get; set; }
+
+    string? ResolvedImageUrl => SfState.ResolveAssetUrl(Producto.ImagenUrl);
+
+    string AltText()
+    {
+        if (!string.IsNullOrWhiteSpace(Producto.Nombre))
+            return string.IsNullOrWhiteSpace(Producto.Codigo) ? Producto.Nombre.Trim() : $"{Producto.Nombre.Trim()} ({Producto.Codigo.Trim()})";
+        return !string.IsNullOrWhiteSpace(Producto.Codigo) ? $"Producto {Producto.Codigo.Trim()}" : "Imagen de producto";
+    }
+}

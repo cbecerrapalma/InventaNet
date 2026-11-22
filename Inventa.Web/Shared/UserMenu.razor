@@ -1,0 +1,73 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthStateProvider
+@inject Inventa.Web.Services.Auth.AuthService AuthService
+@inject NavigationManager Nav
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject Inventa.Web.Services.Tenant.TenantService TenantService
+@inject Inventa.Web.Services.Auth.PermissionService Perms
+
+<MudMenu Icon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit" Dense="true" AriaLabel="Menú de usuario" Class="ml-2">
+    <ActivatorContent>
+        <MudAvatar Size="Size.Small" Color="Color.Primary">@Initial</MudAvatar>
+    </ActivatorContent>
+    <ChildContent>
+        <MudMenuItem Disabled="true">
+            <MudText Typo="Typo.caption">@DisplayName</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@TenantDisplay</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@(FormatoCl.Miles(_perms.Count)) permisos</MudText>
+        </MudMenuItem>
+        <MudDivider />
+        <MudMenuItem Icon="@Icons.Material.Filled.Logout" OnClick="Logout">Cerrar sesión</MudMenuItem>
+    </ChildContent>
+</MudMenu>
+
+@code {
+    private string DisplayName = "Mi cuenta";
+    private string Initial = "?";
+    private string TenantDisplay = "Tenant";
+    private HashSet<string> _perms = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = state.User;
+
+        // Nombre visible: claim name/email si existen; si no, "Mi cuenta"
+        var nameClaim = user.FindFirst("name")?.Value ?? user.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
+        if (!string.IsNullOrWhiteSpace(nameClaim))
+        {
+            DisplayName = nameClaim;
+            Initial = nameClaim.Trim()[0].ToString().ToUpperInvariant();
+        }
+        else
+        {
+            DisplayName = "Mi cuenta";
+            Initial = "⚙"; // Fallback
+        }
+
+        // Tenant actual
+        var tenantId = await TenantCtx.GetCurrentTenantIdAsync();
+        if (tenantId.HasValue)
+        {
+            try
+            {
+                var tenants = await TenantService.GetMyTenantsAsync();
+                var tenant = tenants.FirstOrDefault(t => t.IdTenant == tenantId.Value);
+                TenantDisplay = tenant != null ? tenant.Nombre : $"Tenant #{tenantId.Value}";
+            }
+            catch
+            {
+                TenantDisplay = $"Tenant #{tenantId.Value}";
+            }
+        }
+
+        // Permisos
+        if (user.Identity?.IsAuthenticated ?? false)
+        {
+            var perms = await Perms.GetPermissionsAsync();
+            _perms = new HashSet<string>(perms, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private async Task Logout() { await AuthService.LogoutAsync(); Nav.NavigateTo("/login", replace: true); }
+}

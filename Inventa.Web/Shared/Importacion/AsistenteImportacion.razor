@@ -1,0 +1,232 @@
+@* S91: asistente genérico de importación (pasos plantilla → subir → validar → aplicar).
+   Reutilizable entre entidades vía parámetros; el flujo de productos lo instancia /importaciones. *@
+@using CBP.Blazor.Services
+@using Inventa.Web.Models.Api
+@using Inventa.Web.Models.Importacion
+@inject Inventa.Web.Services.Importacion.ImportacionApiService Svc
+@inject IFileDownloadService Descargas
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<MudStepper @ref="_stepper" @bind-ActiveIndex="_activeStep" Class="mb-3 inv-asistente">
+    <ChildContent>
+        <MudStep Title="Plantilla y archivo">
+            <MudText Typo="Typo.body2" Class="mb-2">@Descripcion</MudText>
+            <MudStack Row="true" Spacing="2" Class="mb-3">
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download" OnClick="DescargarPlantillaAsync" Disabled="_descargando" aria-label="Descargar plantilla" data-testid="btn-plantilla">
+                    @(_descargando ? "Descargando..." : "Descargar plantilla")
+                </MudButton>
+            </MudStack>
+            <InputFile OnChange="OnFileSelected" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="inv-input-archivo" aria-label="Seleccionar archivo Excel" data-testid="import-file-input" />
+            @if (_selectedName is not null)
+            {
+                <MudText Typo="Typo.caption" Class="mt-2" data-testid="archivo-seleccionado">Seleccionado: @_selectedName (@FormatSize(_selectedSize))</MudText>
+            }
+            @if (_validationError is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mt-2" data-testid="archivo-error">@_validationError</MudAlert>
+            }
+            <MudStack Row="true" Class="mt-3">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_selectedFile is null || _validando)" OnClick="ValidarAsync" aria-label="Validar archivo" data-testid="btn-validar">
+                    @(_validando ? "Validando..." : "Validar archivo")
+                </MudButton>
+            </MudStack>
+        </MudStep>
+        <MudStep Title="Resumen de validación">
+            @if (_lote is null)
+            {
+                <MudAlert Severity="Severity.Info">Primero valida un archivo en el paso anterior.</MudAlert>
+            }
+            else
+            {
+                <MudGrid Spacing="2" Class="mb-2">
+                    <MudItem xs="6" md="3"><MudText Typo="Typo.caption">Filas</MudText><MudText Typo="Typo.h6" data-testid="resumen-filas">@FormatoCl.Miles(_lote.Filas)</MudText></MudItem>
+                    <MudItem xs="6" md="3"><MudText Typo="Typo.caption">Nuevos</MudText><MudText Typo="Typo.h6" Color="Color.Success" data-testid="resumen-nuevos">@FormatoCl.Miles(_lote.Nuevos)</MudText></MudItem>
+                    <MudItem xs="6" md="3"><MudText Typo="Typo.caption">Existentes (se actualizan)</MudText><MudText Typo="Typo.h6" Color="Color.Info" data-testid="resumen-existentes">@FormatoCl.Miles(_lote.Existentes)</MudText></MudItem>
+                    <MudItem xs="6" md="3"><MudText Typo="Typo.caption">Errores</MudText><MudText Typo="Typo.h6" Color="@(_lote.Errores > 0 ? Color.Error : Color.Default)" data-testid="resumen-errores">@FormatoCl.Miles(_lote.Errores)</MudText></MudItem>
+                    <MudItem xs="6" md="3"><MudText Typo="Typo.caption">Advertencias</MudText><MudText Typo="Typo.h6" Color="@(_lote.Advertencias > 0 ? Color.Warning : Color.Default)" data-testid="resumen-advertencias">@FormatoCl.Miles(_lote.Advertencias)</MudText></MudItem>
+                </MudGrid>
+                @if (SinCambios is { } sinCambios)
+                {
+                    @* S91.4: regla de servidor; el archivo no aporta cambios al catálogo. *@
+                    <MudAlert Severity="Severity.Info" Class="mb-2" data-testid="lote-sin-cambios">@sinCambios.Mensaje</MudAlert>
+                }
+                else if (_lote.Errores > 0)
+                {
+                    <MudAlert Severity="Severity.Error" Class="mb-2" data-testid="lote-con-errores">El archivo tiene errores. Corrígelo y vuelve a subirlo; para el detalle completo descarga el reporte desde el historial.</MudAlert>
+                }
+                @if (_lote.Cambios is { } cambios && SinCambios is null)
+                {
+                    <TarjetaCambios Resumen="@cambios" />
+                    <TablaCambios LoteId="@_lote.Id" Resumen="@cambios" TestId="tabla-cambios" />
+                }
+                @if (_lote.Incidencias.Count > 0)
+                {
+                    <div class="mt-3">
+                        <TablaIncidencias Incidencias="@_lote.Incidencias" Total="@(_lote.Errores + _lote.Advertencias)" />
+                    </div>
+                }
+                <MudStack Row="true" Class="mt-3">
+                    <MudButton Variant="Variant.Text" OnClick="VolverPaso1" data-testid="btn-otro-archivo">Usar otro archivo</MudButton>
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_lote.Errores > 0 || _aplicando)" OnClick="SiguienteConfirmacion" aria-label="Continuar a aplicar" data-testid="btn-continuar">Continuar</MudButton>
+                </MudStack>
+            }
+        </MudStep>
+        <MudStep Title="Confirmar y aplicar">
+            @if (_lote is null)
+            {
+                <MudAlert Severity="Severity.Info">Primero valida un archivo.</MudAlert>
+            }
+            else if (_aplicado is not null)
+            {
+                <MudAlert Severity="Severity.Success" data-testid="aplicado-ok">
+                    Lote #@_aplicado.IdImportacionLote aplicado: @FormatoCl.Miles(_aplicado.ProductosNuevos) nuevos, @FormatoCl.Miles(_aplicado.ProductosExistentes) existentes actualizados,
+                    @FormatoCl.Miles(_aplicado.VariantesNuevas) variantes nuevas, @FormatoCl.Miles(_aplicado.PresentacionesNuevas) presentaciones, @FormatoCl.Miles(_aplicado.PreciosCreados) precios,
+                    @FormatoCl.Miles(_aplicado.StockAjustado) ajustes de stock.
+                    <MudLink Href="@($"/importaciones/{_aplicado.IdImportacionLote}")">Ver detalle del lote</MudLink>
+                </MudAlert>
+                <MudButton Variant="Variant.Text" OnClick="Reiniciar" data-testid="btn-nueva-importacion">Nueva importación</MudButton>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-2" data-testid="texto-confirmacion">@TextoConfirmacion</MudAlert>
+                @if (Modificadas > 0)
+                {
+                    <MudCheckBox T="bool" @bind-Value="_confirmaExistentes" Label="@TextoConfirmacionExistentes" data-testid="chk-existentes" />
+                }
+                @if (_aplicarError is not null)
+                {
+                    <MudAlert Severity="Severity.Error" Class="mt-2" data-testid="aplicar-error">@_aplicarError</MudAlert>
+                }
+                <MudStack Row="true" Class="mt-3">
+                    <MudButton Variant="Variant.Text" OnClick="VolverResumen" data-testid="btn-volver-resumen">Volver</MudButton>
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@((Modificadas > 0 && !_confirmaExistentes) || _aplicando)" OnClick="AplicarAsync" aria-label="Aplicar lote" data-testid="btn-aplicar">
+                        @(_aplicando ? "Aplicando..." : "Aplicar lote")
+                    </MudButton>
+                </MudStack>
+            }
+        </MudStep>
+    </ChildContent>
+</MudStepper>
+
+@code {
+    [Parameter] public string Titulo { get; set; } = "Importar";
+    [Parameter] public string Descripcion { get; set; } = "Descarga la plantilla, complétala (una fila por variante) y súbela para validarla.";
+    [Parameter] public string TextoConfirmacionExistentes { get; set; } = "Entiendo que los valores actuales se reemplazan por los del archivo.";
+    [Parameter] public EventCallback<long> OnAplicado { get; set; }
+
+    private MudStepper _stepper = null!;
+    private int _activeStep;
+    private IBrowserFile? _selectedFile;
+    private string? _selectedName;
+    private long _selectedSize;
+    private string? _validationError;
+    private bool _descargando;
+    private bool _validando;
+    private bool _aplicando;
+    private LoteCreadoDto? _lote;
+    private AplicarResultadoDto? _aplicado;
+    private bool _confirmaExistentes;
+    private string? _aplicarError;
+
+    // S91.4: confirmación específica a partir de la vista previa de cambios del servidor.
+    private int Modificadas => _lote?.Cambios?.Modificados ?? _lote?.Existentes ?? 0;
+    private int Nuevas => _lote?.Cambios?.Nuevos ?? _lote?.Nuevos ?? 0;
+    private IncidenciaLoteDto? SinCambios => _lote?.Incidencias.FirstOrDefault(i => i.Codigo == "SIN_CAMBIOS");
+    private string TextoConfirmacion =>
+        $"Lote #{_lote?.Id}: se crearán {FormatoCl.Miles(Nuevas)} variantes y se modificarán {FormatoCl.Miles(Modificadas)}. "
+        + (Modificadas > 0 ? "Los valores actuales se reemplazan por los del archivo; " : "")
+        + "los precios anteriores quedan en el historial y nada se elimina.";
+
+    private const long MaxBytes = 10L * 1024 * 1024;
+    private const string XlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+    private static string FormatSize(long bytes) => FormatoCl.TamanoArchivo(bytes);
+
+    private async Task DescargarPlantillaAsync()
+    {
+        _descargando = true;
+        try
+        {
+            var (bytes, contentType) = await Svc.DescargarPlantillaAsync(CancellationToken.None);
+            await Descargas.DownloadAsync("plantilla_productos.xlsx", contentType ?? XlsxMime, bytes);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.ToApiError().Detail ?? "No se pudo descargar la plantilla.", Severity.Error);
+        }
+        finally { _descargando = false; }
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _validationError = null;
+        var file = e.File;
+        if (file is null) { _validationError = "No seleccionaste ningún archivo."; _selectedFile = null; _selectedName = null; return; }
+        var ext = Path.GetExtension(file.Name);
+        if (!string.Equals(ext, ".xlsx", StringComparison.OrdinalIgnoreCase))
+        {
+            _validationError = $"Extensión no permitida ({ext}). Solo se aceptan archivos .xlsx.";
+            _selectedFile = null; _selectedName = file.Name; _selectedSize = file.Size; return;
+        }
+        if (file.Size == 0) { _validationError = "El archivo está vacío."; _selectedFile = null; _selectedName = file.Name; _selectedSize = 0; return; }
+        if (file.Size > MaxBytes) { _validationError = $"El archivo supera 10 MB ({FormatSize(file.Size)})."; _selectedFile = null; _selectedName = file.Name; _selectedSize = file.Size; return; }
+        _selectedFile = file; _selectedName = file.Name; _selectedSize = file.Size;
+    }
+
+    private async Task ValidarAsync()
+    {
+        if (_selectedFile is null) return;
+        _validando = true; _validationError = null;
+        try
+        {
+            await using var stream = _selectedFile.OpenReadStream(MaxBytes + 1024);
+            var lote = await Svc.ValidarProductosAsync(_selectedFile.Name, XlsxMime, stream, CancellationToken.None);
+            if (lote is null) { _validationError = "El servidor no devolvió el lote."; return; }
+            _lote = lote; _aplicado = null; _confirmaExistentes = false; _aplicarError = null;
+            await _stepper.NextStepAsync();
+        }
+        catch (ApiException ex)
+        {
+            var err = ex.ToApiError();
+            _validationError = err.StatusCode == 413
+                ? "Archivo demasiado grande (máximo 10 MB)."
+                : err.StatusCode == 409
+                    ? "Este archivo ya fue importado. Revisa el historial de importaciones."
+                    : err.Detail ?? err.Title ?? "No se pudo validar el archivo.";
+        }
+        finally { _validando = false; }
+    }
+
+    private async Task AplicarAsync()
+    {
+        if (_lote is null || (Modificadas > 0 && !_confirmaExistentes)) return;
+        _aplicando = true; _aplicarError = null;
+        try
+        {
+            var r = await Svc.AplicarAsync(_lote.Id, CancellationToken.None);
+            if (r is null) { _aplicarError = "El servidor no devolvió el resultado."; return; }
+            _aplicado = r;
+            await OnAplicado.InvokeAsync(r.IdImportacionLote);
+            Snackbar.Add($"Lote #{r.IdImportacionLote} aplicado.", Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            var err = ex.ToApiError();
+            // S91.4: el servidor explica el 409 (LOTE_YA_APLICADO, SIN_CAMBIOS, LOTE_DESACTUALIZADO…).
+            _aplicarError = err.Detail ?? err.Title ?? "No se pudo aplicar el lote.";
+        }
+        finally { _aplicando = false; }
+    }
+
+    // S91.2: el retroceso usa la API del stepper (ActiveIndex); asignar el campo no navegaba.
+    private async Task VolverPaso1() => await _stepper.PreviousStepAsync();
+    private async Task VolverResumen() => await _stepper.PreviousStepAsync();
+    private async Task SiguienteConfirmacion() => await _stepper.NextStepAsync();
+    private async Task Reiniciar()
+    {
+        _selectedFile = null; _selectedName = null; _lote = null; _aplicado = null;
+        _confirmaExistentes = false; _aplicarError = null; _validationError = null;
+        await _stepper.ResetAsync(true);
+    }
+}

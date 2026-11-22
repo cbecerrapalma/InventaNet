@@ -1,0 +1,217 @@
+:root {
+    --store-radius-sm:8px; --store-radius-md:12px; --store-radius-lg:24px;
+    --store-space-1:4px; --store-space-2:8px; --store-space-3:12px; --store-space-4:16px; --store-space-6:24px;
+    /* S62.5 tokens del shell. --store-whatsapp es el único hex permitido (contraste verificado en pruebas). */
+    --store-header-height:112px;
+    --store-whatsapp:#075E54;
+    --store-footer-gap:24px;
+}
+html { scroll-padding-top: var(--store-header-height); }
+#blazor-error-ui { display:none; }
+/* S61.1 colores de tema en lugar de hex hardcode. */
+.store-hero { background:var(--mud-palette-background); border-bottom:1px solid var(--mud-palette-divider); }
+.product-card { transition: box-shadow .2s; aspect-ratio: 3/4; }
+.product-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,.08); }
+.price-oferta { color:var(--mud-palette-error); font-weight:700; }
+.price-publico { font-weight:600; }
+.store-header { position:sticky; top:0; z-index:10; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+/* S62.5 skip link: solo visible al recibir foco. */
+.sr-only-focusable:not(:focus):not(:focus-within) { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.sr-only-focusable:focus { position:fixed; top:var(--store-space-2); left:var(--store-space-2); z-index:2000; background:var(--mud-palette-surface); color:var(--mud-palette-text-primary); padding:var(--store-space-2) var(--store-space-4); border-radius:var(--store-radius-sm); }
+/* S62.5 shell: anuncio, header, buscador, footer, fab. */
+.store-announce { background:var(--mud-palette-primary); color:var(--mud-palette-primary-text); text-align:center; padding:var(--store-space-2) var(--store-space-4); font-size:.875rem; }
+.store-header__row { display:flex; align-items:center; gap:var(--store-space-3); padding:var(--store-space-2) var(--store-space-4); flex-wrap:wrap; }
+.store-menu__button { display:inline-flex; align-items:center; gap:var(--store-space-2); min-height:var(--store-tap-min); min-width:var(--store-tap-min); padding:var(--store-space-2); background:transparent; border:0; color:var(--mud-palette-text-primary); font:inherit; cursor:pointer; border-radius:var(--store-radius-sm); }
+.store-brand { display:inline-flex; align-items:center; gap:var(--store-space-2); text-decoration:none; color:var(--mud-palette-text-primary); font-weight:700; letter-spacing:.12em; min-height:var(--store-tap-min); }
+.store-brand__logo { height:28px; max-width:140px; object-fit:contain; }
+.store-search { display:flex; align-items:center; gap:var(--store-space-2); flex:1 1 100%; min-width:0; }
+.store-search__input { flex:1 1 auto; min-width:0; min-height:var(--store-tap-min); padding:var(--store-space-2) var(--store-space-3); border:1px solid var(--mud-palette-lines-default); border-radius:var(--store-radius-sm); font:inherit; color:var(--mud-palette-text-primary); background:var(--mud-palette-surface); }
+.store-footer { border-top:1px solid var(--mud-palette-divider); background:var(--mud-palette-background); padding:var(--store-space-6) var(--store-space-4); }
+.store-footer__grid { display:grid; gap:var(--store-footer-gap); grid-template-columns:1fr; max-width:var(--store-container-max); margin:0 auto; }
+.store-footer__title { font-weight:700; margin:0 0 var(--store-space-2); }
+.store-footer__text { margin:0 0 var(--store-space-1); font-size:.875rem; }
+.store-footer__list { margin:0; padding-left:1.2rem; font-size:.875rem; }
+.store-footer__logo { height:32px; max-width:160px; object-fit:contain; }
+.store-footer__backoffice, .store-footer__credits { max-width:var(--store-container-max); margin:var(--store-space-4) auto 0; font-size:.8rem; }
+.store-fab { position:fixed; right:max(var(--store-space-4), env(safe-area-inset-right)); bottom:max(var(--store-space-4), env(safe-area-inset-bottom)); z-index:1200; display:inline-flex; align-items:center; gap:var(--store-space-2); min-height:var(--store-tap-min); min-width:var(--store-tap-min); padding:var(--store-space-2) var(--store-space-4); border-radius:var(--store-radius-lg); background:var(--store-whatsapp); color:#FFFFFF; text-decoration:none; font-weight:600; }
+/* S62.5 reserva inferior móvil para que el fab no tape contenido ni paginación. */
+.store-main { display:block; padding-bottom:var(--store-space-4); }
+/* S61.1 WCAG 2.4.7: foco visible en todos los controles. */
+:focus-visible { outline: 3px solid var(--mud-palette-primary); outline-offset: 2px; }
+/* S71: MudBlazor define a:focus con mayor especificidad y apaga el outline en
+   enlaces; se repone foco visible en los enlaces propios (misma forma/color). */
+a.store-brand:focus-visible,
+.sr-only-focusable:focus-visible,
+.store-menu__button:focus-visible,
+.store-mega__item:focus-visible,
+.store-mega__all:focus-visible,
+.store-cat-link:focus-visible,
+.store-cat-child-link:focus-visible,
+.store-card__link:focus-visible,
+.store-home__tile:focus-visible,
+.store-breadcrumb__link:focus-visible { outline: 3px solid var(--mud-palette-primary); outline-offset: 2px; }
+/* S61.1 respeta movimiento reducido. */
+@media (prefers-reduced-motion: reduce) {
+    .product-card { transition:none; }
+    .product-card:hover { box-shadow:none; }
+}
+/* S65.1 reserva táctil (WCAG 2.5.8): los controles de filtro cumplen 44px. */
+.store-filters__control { min-height: var(--store-tap-min); }
+.store-filters__control input { min-height: var(--store-tap-min); }
+
+/* U3: header compacto en móvil - dos filas */
+@media (max-width:599px) {
+    .store-header__row { flex-wrap:wrap; padding:var(--store-space-2) var(--store-space-3); gap:var(--store-space-2); }
+    .store-brand { flex:1 1 auto; min-width:0; }
+    .store-brand__name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px; }
+    .store-search { order:3; flex:1 1 100%; margin-top:var(--store-space-2); }
+    .store-header__session { order:2; }
+    .store-login__text { display:none; }
+    .store-login__icon { display:inline-flex; min-height:var(--store-tap-min); min-width:var(--store-tap-min); padding:var(--store-space-1); }
+    .store-menu__text { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+    .store-fab__label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+    .store-fab { padding:var(--store-space-2); border-radius:50%; }
+    .store-main { padding-bottom:88px; }
+}
+
+@media (min-width:600px) {
+    .store-search { flex:1 1 auto; }
+    .store-footer__grid { grid-template-columns:repeat(2, 1fr); }
+}
+
+@media (min-width:960px) {
+    .store-footer__grid { grid-template-columns:repeat(4, 1fr); }
+}
+
+/* S71 card reutilizable: enlace accesible, CLS 0 (aspect-ratio fijo), badge superpuesto. */
+.store-card { position: relative; display:flex; flex-direction:column; text-decoration:none; color:var(--mud-palette-text-primary); background:var(--mud-palette-surface); border:1px solid var(--mud-palette-lines-default); border-radius:var(--store-radius-md); overflow:hidden; min-height:var(--store-tap-min); transition:box-shadow .2s; }
+.store-card:hover { box-shadow:0 8px 24px rgba(0,0,0,.08); }
+.store-card__media { position:relative; display:block; aspect-ratio:1/1; background:var(--mud-palette-background); overflow:hidden; }
+.store-card__img { width:100%; height:100%; object-fit:cover; display:block; }
+.store-card__placeholder { display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; background:var(--mud-palette-background); gap:var(--store-space-1); color:var(--mud-palette-text-secondary); }
+.store-card__placeholder-icon { font-size:36px; opacity:.3; }
+.store-card__placeholder-text { font-size:.75rem; font-weight:500; }
+.store-card__badge { position:absolute; top:var(--store-space-2); left:var(--store-space-2); display:inline-flex; align-items:center; min-height:24px; padding:0 var(--store-space-2); border-radius:var(--store-radius-sm); background:var(--mud-palette-error); color:var(--mud-palette-error-text); font-weight:700; font-size:.875rem; }
+.store-card__body { display:flex; flex-direction:column; gap:2px; padding:var(--store-space-3); }
+.store-card__meta { font-size:.75rem; color:var(--mud-palette-text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.store-card__name { font-weight:600; line-height:1.25; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.store-card__code { font-size:.78rem; color:var(--mud-palette-text-secondary); }
+.store-card__price { display:flex; align-items:baseline; gap:var(--store-space-2); flex-wrap:wrap; margin-top:var(--store-space-1); }
+.store-card__final { font-weight:700; display:flex; align-items:baseline; gap:2px; }
+.store-card__from { font-size:.75rem; font-weight:400; color:var(--mud-palette-text-secondary); }
+.store-card__reference { color:var(--mud-palette-text-secondary); text-decoration:line-through; font-size:.85rem; }
+.store-card__noprice { color:var(--mud-palette-text-secondary); font-size:.85rem; }
+.store-card--compact { max-width:240px; }
+
+/* U6: barra de filtros unificada */
+.store-filter-bar { display:flex; flex-wrap:wrap; align-items:center; gap:var(--store-space-2); padding:var(--store-space-2) var(--store-space-3); background:var(--mud-palette-background); border:1px solid var(--mud-palette-lines-default); border-radius:var(--store-radius-md); margin-bottom:var(--store-space-4); }
+.store-filter-bar__inner { display:flex; flex-wrap:wrap; align-items:center; gap:var(--store-space-2); flex:1 1 auto; }
+.store-filter-bar__control { min-height:var(--store-tap-min); }
+.store-filter-bar__switch { min-height:var(--store-tap-min); height:var(--store-tap-min); }
+/* S111 D2: el botón «Filtros» solo existe bajo 600 px; ahí la barra se pliega mientras no se abra. */
+.mud-button-root.store-filter-toggle { display:none; }
+@media (max-width:599.98px) {
+    .mud-button-root.store-filter-toggle { display:inline-flex; }
+    .store-filter-bar.store-filter-bar--cerrado { display:none; }
+}
+@media (max-width:599px) {
+    .store-filter-bar__inner { gap:var(--store-space-2); }
+    .store-filter-bar__control { flex:1 1 calc(50% - var(--store-space-2)); min-width:140px; }
+    .store-filter-bar__control:last-child { flex:1 1 100%; }
+}
+
+/* S71 home: tiles, carrusel CSS-only con scroll-snap, marcas. */
+.store-home__more { min-height:var(--store-tap-min); display:inline-flex; align-items:center; color:var(--mud-palette-primary); }
+.store-home__tiles { display:grid; grid-template-columns:repeat(2, 1fr); gap:var(--store-space-3); margin-bottom:var(--store-space-6); }
+.store-home__carousel { position: relative; display:flex; gap:var(--store-space-3); overflow-x:auto; scroll-snap-type:x mandatory; scroll-padding:var(--store-space-2); padding-bottom:var(--store-space-2); margin-bottom:var(--store-space-6); }
+.store-home__tile { display:flex; flex-direction:column; align-items:center; gap:var(--store-space-2); padding:var(--store-space-3) var(--store-space-2); border:1px solid var(--mud-palette-lines-default); border-radius:var(--store-radius-md); text-decoration:none; color:var(--mud-palette-text-primary); background:var(--mud-palette-surface); min-height:var(--store-tap-min); }
+.store-home__tile-img { width:56px; height:56px; object-fit:cover; border-radius:50%; }
+.store-home__tile-initial { display:inline-flex; align-items:center; justify-content:center; width:56px; height:56px; border-radius:50%; color:var(--mud-palette-primary); font-size:1.5rem; font-weight:700; }
+.store-home__tile-name { font-weight:600; text-align:center; line-height:1.2; }
+.store-home__tile-count { font-size:.75rem; color:var(--mud-palette-text-secondary); text-align:center; }
+.store-home__carousel::-webkit-scrollbar { height:6px; }
+.store-home__carousel::-webkit-scrollbar-thumb { background:var(--mud-palette-lines-default); border-radius:var(--store-radius-sm); }
+.store-home__slide { flex:0 0 auto; width:min(240px, 70vw); scroll-snap-align:start; }
+.store-home__brands { display:flex; flex-wrap:wrap; gap:var(--store-space-2); margin-bottom:var(--store-space-6); }
+.store-home__brand { display:inline-flex; align-items:center; min-height:var(--store-tap-min); padding:var(--store-space-2) var(--store-space-4); border:1px solid var(--mud-palette-lines-default); border-radius:var(--store-radius-lg); text-decoration:none; color:var(--mud-palette-text-primary); background:var(--mud-palette-surface); }
+/* S71: .mud-main-content es flex-item con min-width:auto y propaga el min-content
+   del carrusel a la página (scroll horizontal en 360). Solo CSS, sin tocar MudBlazor. */
+.mud-main-content { min-width:0; }
+/* S110 D1: la tienda no usa MudAppBar (la cabecera es sticky y está en el flujo): sin el padding-top de 56 px que MudMainContent reserva para ella. */
+.store-main .mud-main-content { padding-top:0; }
+
+/* S71 mega-menú escritorio + breadcrumb + subchips. */
+.store-mega-header { position:sticky; top:0; z-index:1000; background:var(--mud-palette-surface); }
+.store-mega { display:none; border-top:1px solid var(--mud-palette-divider); }
+.store-mega__bar { display:flex; gap:var(--store-space-1); overflow-x:auto; max-width:var(--store-container-max); margin:0 auto; padding:0 var(--store-space-4); scrollbar-width:thin; scrollbar-color:var(--mud-palette-lines-default) transparent; }
+.store-mega__bar::-webkit-scrollbar { height:4px; }
+.store-mega__bar::-webkit-scrollbar-track { background:transparent; }
+.store-mega__bar::-webkit-scrollbar-thumb { background:var(--mud-palette-lines-default); border-radius:var(--store-radius-sm); }
+.store-mega__bar::before,
+.store-mega__bar::after { content:""; flex:0 0 24px; background:linear-gradient(to right, var(--mud-palette-surface), transparent); pointer-events:none; }
+.store-mega__item { display:inline-flex; align-items:center; min-height:var(--store-tap-min); padding:var(--store-space-2) var(--store-space-3); text-decoration:none; color:var(--mud-palette-text-primary); background:transparent; border:0; font:inherit; cursor:pointer; white-space:nowrap; border-radius:var(--store-radius-sm); }
+.store-mega__item--active { font-weight:700; text-decoration:underline; text-underline-offset:4px; }
+.store-mega__panel { border-top:1px solid var(--mud-palette-divider); background:var(--mud-palette-surface); box-shadow:0 12px 28px rgba(0,0,0,.12); }
+.store-mega__grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:var(--store-space-2) var(--store-space-4); max-width:var(--store-container-max); margin:0 auto; padding:var(--store-space-4); }
+.store-mega__all { font-weight:700; color:var(--mud-palette-primary); min-height:var(--store-tap-min); display:inline-flex; align-items:center; }
+.store-mega__child { min-height:var(--store-tap-min); display:inline-flex; align-items:center; color:var(--mud-palette-text-primary); text-decoration:none; }
+.store-crumbs { margin:0 0 var(--store-space-2); font-size:.875rem; color:var(--mud-palette-text-secondary); }
+.store-crumbs__link { color:var(--mud-palette-primary); min-height:var(--store-tap-min); display:inline-flex; align-items:center; }
+
+/* S110 D2: en móvil las categorías van en una fila deslizable (antes 6 filas de 2 antes de «Ofertas»). */
+@media (max-width:599.98px) {
+    .store-home__tiles { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; padding-bottom:var(--store-space-2); }
+    .store-home__tile { flex:0 0 auto; width:min(136px, 38vw); scroll-snap-align:start; }
+}
+
+@media (min-width:600px) {
+    .store-home__tiles { grid-template-columns:repeat(4, 1fr); }
+}
+
+@media (min-width:960px) {
+    .store-mega { display:block; }
+    .store-home__tiles { grid-template-columns:repeat(6, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .store-card { transition:none; }
+    .store-card:hover { box-shadow:none; }
+    .store-home__carousel { scroll-behavior:auto; }
+}
+
+/* U8: detalle WhatsApp CTA */
+.store-detail__whatsapp { display:inline-flex; align-items:center; gap:var(--store-space-2); margin-top:var(--store-space-3); padding:var(--store-space-2) var(--store-space-4); background:var(--store-whatsapp); color:#fff; text-decoration:none; border-radius:var(--store-radius-md); font-weight:600; min-height:var(--store-tap-min); }
+.store-detail__whatsapp:hover { background:#064d45; text-decoration:none; color:#fff; }
+
+/* S101 detalle: galería con tokens del tema, sin altura fija (1/1 con tope) y miniaturas como botones. */
+.store-detail__media { display:flex; align-items:center; justify-content:center; width:100%; aspect-ratio:1/1; max-height:420px; overflow:hidden; border:1px solid var(--mud-palette-lines-default); background:var(--mud-palette-surface); }
+.store-detail__img { width:100%; height:100%; object-fit:contain; }
+.store-detail__fallback { display:none; width:100%; height:100%; align-items:center; justify-content:center; background:var(--mud-palette-background); }
+.store-detail__thumbs { display:flex; flex-wrap:wrap; gap:var(--store-space-2); margin-top:var(--store-space-2); }
+.store-detail__thumb { width:72px; height:72px; padding:0; overflow:hidden; cursor:pointer; background:var(--mud-palette-surface); border:1px solid var(--mud-palette-lines-default); border-radius:var(--store-radius-sm); }
+.store-detail__thumb[aria-pressed="true"] { border:2px solid var(--mud-palette-primary); }
+.store-detail__thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+
+/* U9: footer - columnas vacías se ocultan via lógica en componente, solo estilos base */
+
+/* S79: formulario de contacto */
+.store-contact-form { display:flex; flex-direction:column; gap:var(--store-space-3); }
+.store-contact-form .mud-text-field { margin-bottom:0; }
+/* S122 D4: en escritorio el botón no se estira a todo el formulario; en móvil sigue a lo ancho (regla de <600px). */
+.store-contact-form > .store-contact__submit { align-self:flex-start; min-width:220px; }
+.store-contact__honeypot { display:none; } /* honeypot oculto por CSS, también tabindex=-1 y aria-hidden en HTML */
+
+/* Botón full-width en móvil */
+@media (max-width:599px) {
+    /* S96.1 D4: solo botones de texto; el icon-button de la casilla de consentimiento no se estira (desbordaba a 375 px). */
+    .store-contact-form .mud-button-root:not(.mud-icon-button) { width:100%; }
+}
+
+/* A11y: mensajes de error */
+.mud-alert[role="status"] { border-left:4px solid var(--mud-palette-success); }
+.mud-alert[data-testid="contact-success"] { background:var(--mud-palette-success-lighten); }
+.mud-alert[data-testid="contact-error"] { background:var(--mud-palette-error-lighten); }
+
+/* Contador de caracteres del mensaje */
+.mud-text-field[data-testid="contact-mensaje"] .mud-input-slot { padding-bottom:32px; }

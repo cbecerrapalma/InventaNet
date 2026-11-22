@@ -1,0 +1,503 @@
+﻿@page "/precios"
+@attribute [Authorize]
+@using Inventa.Web.Models.Precios
+@using Inventa.Web.Models.Productos
+@using Inventa.Web.Services.Precios
+@using Inventa.Web.Shared.Price
+@inject PreciosApiService Api
+@inject Inventa.Web.Services.Productos.ProductosApiService Catalogos
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject IDialogService Dialogs
+@implements IDisposable
+
+<PageTitle>Precios y ofertas | InventaNet</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@(TotalPendientes > 0)" OnBeforeInternalNavigation="AntesDeNavegar" />
+
+<PageHeader Title="Precios y ofertas" Description="Precio oficial y ofertas de cada variante. Los cambios crean una nueva vigencia; el historial no se modifica." Icon="@Icons.Material.Filled.Sell" />
+
+@if (!_checked) { <LoadingState /> }
+else if (!_allowed) { <Forbidden /> }
+else
+{
+    @if (_resumen is { } s)
+    {
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3" data-testid="precios-kpis">
+            <MudChip T="string" Size="Size.Small" Variant="@VarKpi(EstadoFiltroPrecios.Todos)" OnClick="() => FiltrarEstado(EstadoFiltroPrecios.Todos)" data-testid="kpi-vendibles">A la venta: @FormatoCl.Miles(s.Vendibles)</MudChip>
+            @* S119 D1: un indicador en 0 no se muestra, salvo si es el filtro activo (el selector Estado ofrece todos). *@
+            @if (s.SinPrecio > 0 || _estado == EstadoFiltroPrecios.SinPrecio) { <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="@VarKpi(EstadoFiltroPrecios.SinPrecio)" OnClick="() => FiltrarEstado(EstadoFiltroPrecios.SinPrecio)" data-testid="kpi-sinprecio">Sin precio: @FormatoCl.Miles(s.SinPrecio)</MudChip> }
+            @if (s.ConOferta > 0 || _estado == EstadoFiltroPrecios.ConOferta) { <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="@VarKpi(EstadoFiltroPrecios.ConOferta)" OnClick="() => FiltrarEstado(EstadoFiltroPrecios.ConOferta)" data-testid="kpi-conoferta">En oferta: @FormatoCl.Miles(s.ConOferta)</MudChip> }
+            @if (s.VencenEn7Dias > 0 || _estado == EstadoFiltroPrecios.VenceEn7Dias) { <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="@VarKpi(EstadoFiltroPrecios.VenceEn7Dias)" OnClick="() => FiltrarEstado(EstadoFiltroPrecios.VenceEn7Dias)" data-testid="kpi-vencen">Ofertas que vencen en 7 días: @FormatoCl.Miles(s.VencenEn7Dias)</MudChip> }
+            @if (s.OfertasSinEfecto > 0 || _estado == EstadoFiltroPrecios.OfertaSinEfecto) { <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="@VarKpi(EstadoFiltroPrecios.OfertaSinEfecto)" OnClick="() => FiltrarEstado(EstadoFiltroPrecios.OfertaSinEfecto)" data-testid="kpi-sinefecto">Ofertas sin efecto: @FormatoCl.Miles(s.OfertasSinEfecto)</MudChip> }
+            @if (s.Programados > 0 || _estado == EstadoFiltroPrecios.Programado) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="@VarKpi(EstadoFiltroPrecios.Programado)" OnClick="() => FiltrarEstado(EstadoFiltroPrecios.Programado)" data-testid="kpi-programados">Programados: @FormatoCl.Miles(s.Programados)</MudChip> }
+        </MudStack>
+    }
+
+    @* S119 D2: bajo 600 px los filtros se pliegan tras «Filtros (n)» (patrón S112); la búsqueda queda siempre visible. *@
+    <MudPaper Class="@($"pa-3 mb-3 inv-filtros{(_filtrosAbiertos ? "" : " inv-filtros--cerrado")}")" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)" data-testid="precios-filtros">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" Class="d-sm-none inv-filtros-siempre"><MudButton Variant="Variant.Outlined" Size="Size.Small" FullWidth="true" StartIcon="@Icons.Material.Filled.FilterList" OnClick="@(() => _filtrosAbiertos = !_filtrosAbiertos)" aria-expanded="@(_filtrosAbiertos ? "true" : "false")" data-testid="filtros-toggle">@(_filtrosAbiertos ? "Ocultar filtros" : $"Filtros ({FiltrosActivos})")</MudButton></MudItem>
+            <MudItem xs="12" md="4" Class="inv-filtros-siempre"><MudTextField @bind-Value="_q" Label="Buscar por código, nombre o código de barras" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="OnBuscar" Clearable="true" aria-label="Buscar variantes" data-testid="precios-buscar" /></MudItem>
+            <MudItem xs="6" md="2"><MudSelect T="long?" Value="_cat" ValueChanged="OnCat" Label="Categoría" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Clearable="true"><MudSelectItem Value="@((long?)null)">Todas</MudSelectItem>@foreach (var c in _categorias) { <MudSelectItem Value="@((long?)c.IdCategoria)">@c.Nombre</MudSelectItem> }</MudSelect></MudItem>
+            <MudItem xs="6" md="2"><MudSelect T="int?" Value="_marca" ValueChanged="OnMarca" Label="Marca" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Clearable="true"><MudSelectItem Value="@((int?)null)">Todas</MudSelectItem>@foreach (var m in _marcas) { <MudSelectItem Value="@((int?)m.IdMarca)">@m.Nombre</MudSelectItem> }</MudSelect></MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudSelect T="EstadoFiltroPrecios" Value="_estado" ValueChanged="OnEstado" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" data-testid="precios-estado">
+                    <MudSelectItem Value="EstadoFiltroPrecios.Todos">Todos</MudSelectItem>
+                    <MudSelectItem Value="EstadoFiltroPrecios.SinPrecio">Sin precio</MudSelectItem>
+                    <MudSelectItem Value="EstadoFiltroPrecios.ConOferta">En oferta</MudSelectItem>
+                    <MudSelectItem Value="EstadoFiltroPrecios.SinOferta">Sin oferta</MudSelectItem>
+                    <MudSelectItem Value="EstadoFiltroPrecios.OfertaSinEfecto">Oferta sin efecto</MudSelectItem>
+                    <MudSelectItem Value="EstadoFiltroPrecios.VenceEn7Dias">Oferta vence en 7 días</MudSelectItem>
+                    <MudSelectItem Value="EstadoFiltroPrecios.Programado">Con cambio programado</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            @* S119 D2: el d-flex va adentro; en el MudItem ganaba (!important) a la regla que pliega los filtros. *@
+            <MudItem xs="12" sm="6" md="2">
+                <div class="d-flex align-center" style="height:100%"><MudSwitch T="bool" Value="_inactivos" ValueChanged="OnInactivos" Color="Color.Primary" Label="Incluir inactivas" aria-label="Incluir variantes inactivas" /></div>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @if (_canEdit && _sel.Count > 0)
+    {
+        <MudPaper Class="pa-2 mb-2 d-flex align-center flex-wrap gap-2" Elevation="0" Style="background:var(--mud-palette-primary-hover)" data-testid="precios-lote">
+            <MudText Typo="Typo.body2"><b>@_sel.Count</b> seleccionada(s)</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Percent" OnClick="@(() => Lote("ajuste"))">Ajustar precio %</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.LocalOffer" OnClick="@(() => Lote("oferta"))">Poner en oferta</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Block" OnClick="@(() => Lote("terminar"))">Terminar ofertas</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => _sel.Clear()">Quitar selección</MudButton>
+        </MudPaper>
+    }
+
+    @if (_loading) { <LoadingState Message="Cargando precios..." /> }
+    else if (_error is not null) { <ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Recargar" /> }
+    else if (_items.Count == 0)
+    {
+        <EmptyState Title="Sin variantes" Description="@(HayFiltros ? "No hay variantes para el filtro aplicado." : "No hay variantes a la venta en este tenant.")" Icon="@Icons.Material.Filled.Sell" />
+    }
+    else
+    {
+        @* Escritorio (≥ 600 px): tabla. Clases responsivas (no dependen de JS). *@
+        <div class="d-none d-sm-block">
+            <MudTable Items="@_items" Dense="true" Hover="true" Elevation="0" Bordered="true" Breakpoint="Breakpoint.None" Class="mb-2" data-testid="precios-tabla">
+                <HeaderContent>
+                    @if (_canEdit) { <MudTh Style="width:44px"><MudCheckBox T="bool" Value="TodaLaPagina" ValueChanged="SeleccionarPagina" Dense="true" aria-label="Seleccionar la página" /></MudTh> }
+                    <MudTh>Variante</MudTh>
+                    @* S119 D3: columnas de montos más angostas; la variante gana ~80 px (nombres en 2 líneas, no 3–4). *@
+                    <MudTh Style="width:150px;white-space:nowrap">Precio oficial</MudTh>
+                    <MudTh Style="width:170px">Oferta</MudTh>
+                    <MudTh Style="width:140px;white-space:nowrap">Paga el cliente</MudTh>
+                    <MudTh Style="width:120px;white-space:nowrap">Costo · margen</MudTh>
+                    <MudTh Style="width:56px"></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    @{ var f = context; var pend = Pend(f.IdPresProd); }
+                    @if (_canEdit) { <MudTd><MudCheckBox T="bool" Value="_sel.Contains(f.IdPresProd)" ValueChanged="v => Seleccionar(f.IdPresProd, v)" Dense="true" aria-label="@($"Seleccionar {f.CodigoVariante}")" /></MudTd> }
+                    <MudTd Style="@(pend is null ? "" : "background:var(--mud-palette-warning-hover)")">
+                        <MudLink Href="@($"/productos/{f.IdProd}")" Typo="Typo.body2"><b>@f.CodigoVariante</b></MudLink>
+                        <MudText Typo="Typo.body2">@f.Nombre</MudText>
+                        <MudText Typo="Typo.caption" Class="d-block" Color="Color.Secondary">@f.Categoria@(f.Marca is null ? "" : $" · {f.Marca}")@(f.Vendible ? "" : " · inactiva")</MudText>
+                    </MudTd>
+                    <MudTd>
+                        @if (_editandoId == f.IdPresProd)
+                        {
+                            <MudNumericField Culture="@FormatoCl.Cultura" T="decimal?" Value="_editValor" ValueChanged="v => _editValor = v" Immediate="true" AutoFocus="true" HideSpinButtons="true"
+                                             Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentText="$"
+                                             Error="@(_editValor is not null && !PreciosUi.MontoValido(_editValor, _decimales))"
+                                             OnKeyDown="TeclaEdicion" OnBlur="FinEdicion" aria-label="@($"Precio oficial de {f.Nombre}")" data-testid="celda-precio-input" />
+                        }
+                        else
+                        {
+                            <div class="@(_canEdit ? "celda-editable" : "")" role="@(_canEdit ? "button" : null)" tabindex="@(_canEdit ? 0 : -1)"
+                                 @onclick="() => Editar(f)" @onkeydown="e => TeclaCelda(e, f)" aria-label="@($"Precio oficial de {f.Nombre}")" data-testid="celda-precio">
+                                @if (pend?.Precio is { } pp)
+                                {
+                                    <MudText Typo="Typo.caption" Class="d-block" Style="text-decoration:line-through">@FormatoCl.Moneda(f.Oficial?.Valor)</MudText>
+                                    <MudText Typo="Typo.body2" Color="Color.Warning"><b>@PreciosUi.TextoPrecioPendiente(pp)</b>@(pp.Desde is DateOnly d ? $" desde {FormatoCl.Fecha(d)}" : "")</MudText>
+                                }
+                                else if (f.Oficial is { } of)
+                                {
+                                    <MudText Typo="Typo.body2" Style="@(f.Oferta is null ? "" : "text-decoration:line-through")">@FormatoCl.Moneda(of.Valor)</MudText>
+                                    <MudText Typo="Typo.caption" Class="d-block" Color="Color.Secondary" Style="white-space:nowrap">desde @FormatoCl.Fecha(of.Desde)</MudText>
+                                }
+                                else { <MudChip T="string" Size="Size.Small" Color="Color.Error">Sin precio</MudChip> }
+                                @if (f.Programado is { } pr)
+                                {
+                                    <MudText Typo="Typo.caption" Class="d-block" Color="Color.Info" Style="@(pend?.Anular is null ? "" : "text-decoration:line-through")">Programado @FormatoCl.Moneda(pr.Valor) el @FormatoCl.Fecha(pr.Desde)</MudText>
+                                }
+                            </div>
+                        }
+                    </MudTd>
+                    <MudTd>
+                        <div class="@(_canEdit ? "celda-editable" : "")" role="@(_canEdit ? "button" : null)" tabindex="@(_canEdit ? 0 : -1)"
+                             @onclick="() => AbrirEditor(f)" @onkeydown="e => TeclaOferta(e, f)" aria-label="@($"Oferta de {f.Nombre}")" data-testid="celda-oferta">
+                            @if (pend?.Oferta is { } po || pend?.Terminar is not null)
+                            {
+                                @if (f.Oferta is { } ov) { <MudText Typo="Typo.caption" Class="d-block" Style="text-decoration:line-through">@PreciosUi.TextoOferta(ov)</MudText> }
+                                <MudText Typo="Typo.body2" Color="Color.Warning"><b>@PreciosUi.TextoOfertaPendiente((pend.Oferta ?? pend.Terminar)!)</b></MudText>
+                            }
+                            else if (f.Oferta is { } o) { <MudText Typo="Typo.body2">@PreciosUi.TextoOferta(o)</MudText> }
+                            else { <MudText Typo="Typo.body2" Color="Color.Secondary">—</MudText> }
+                            @if (f.OfertaProgramada is { } op) { <MudText Typo="Typo.caption" Class="d-block" Color="Color.Info">Programada @FormatoCl.Moneda(op.Precio) desde @FormatoCl.Fecha(op.Desde)</MudText> }
+                            @if (f.OfertasSinEfecto > 0)
+                            {
+                                <MudTooltip Text="Hay ofertas activas que no rigen (ver historial)."><MudText Typo="Typo.caption" Class="d-block" Color="Color.Warning">⚠ @f.OfertasSinEfecto sin efecto</MudText></MudTooltip>
+                            }
+                        </div>
+                    </MudTd>
+                    <MudTd>
+                        @if (f.PrecioEfectivo is decimal ef)
+                        {
+                            <MudText Typo="Typo.body1"><b>@FormatoCl.Moneda(ef)</b></MudText>
+                            @if (f.Oferta is { } o2) { <MudChip T="string" Size="Size.Small" Color="Color.Success">Oferta@(o2.Pct is int p ? $" −{FormatoCl.Porcentaje(p)}" : "")</MudChip> }
+                            else { <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Oficial</MudChip> }
+                        }
+                        else { <MudText Typo="Typo.body2" Color="Color.Secondary">—</MudText> }
+                    </MudTd>
+                    <MudTd>
+                        <MudText Typo="Typo.body2">@(f.CostoProm > 0 ? FormatoCl.Moneda(f.CostoProm) : "—")</MudText>
+                        @if (f.MargenPct is decimal m) { <MudText Typo="Typo.caption" Class="d-block" Color="@(m < 0 ? Color.Error : Color.Secondary)">margen @FormatoCl.Porcentaje(m, 1)</MudText> }
+                    </MudTd>
+                    <MudTd>
+                        <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AriaLabel="@($"Acciones de {f.CodigoVariante}")">
+                            @if (_canEdit) { <MudMenuItem OnClick="() => AbrirEditor(f)">Editar precio y oferta</MudMenuItem> }
+                            <MudMenuItem OnClick="() => VerHistorial(f)">Ver historial</MudMenuItem>
+                            @if (_canEdit && f.Oferta is not null) { <MudMenuItem OnClick="() => AgregarPendientes(f, [PreciosUi.TerminarOferta(f)])">Terminar oferta</MudMenuItem> }
+                            @if (_canEdit && f.Programado is not null) { <MudMenuItem OnClick="() => AgregarPendientes(f, [PreciosUi.AnularProgramado(f)])">Anular precio programado</MudMenuItem> }
+                            @if (pend is not null) { <MudMenuItem OnClick="() => QuitarPendientes(f.IdPresProd)">Descartar cambios de esta variante</MudMenuItem> }
+                        </MudMenu>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </div>
+
+        @* Móvil (< 600 px): tarjetas. *@
+        <div class="d-sm-none">
+            <MudStack Spacing="2" Class="mb-2" data-testid="precios-tarjetas">
+                @foreach (var f in _items)
+                {
+                    var pend = Pend(f.IdPresProd);
+                    <MudPaper Class="pa-3" Elevation="0" Style="@($"border:1px solid var(--mud-palette-lines-default);{(pend is null ? "" : "background:var(--mud-palette-warning-hover)")}")">
+                        <MudText Typo="Typo.body2"><b>@f.CodigoVariante</b></MudText>
+                        <MudText Typo="Typo.body2">@f.Nombre</MudText>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-2">
+                            <div>
+                                @* S119 D4: precio que paga, precio oficial tachado y descuento en una sola fila. *@
+                                <div class="d-flex align-center flex-wrap gap-2" data-testid="tarjeta-precio">
+                                    <MudText Typo="Typo.h6">@(f.PrecioEfectivo is decimal e ? FormatoCl.Moneda(e) : "Sin precio")</MudText>
+                                    @if (f.Oferta is { } o) { <MudText Typo="Typo.caption" Style="text-decoration:line-through">@FormatoCl.Moneda(f.Oficial?.Valor)</MudText> <MudChip T="string" Size="Size.Small" Color="Color.Success" Class="ma-0">−@FormatoCl.Porcentaje(o.Pct)</MudChip> }
+                                </div>
+                                @if (pend is not null) { <MudText Typo="Typo.caption" Class="d-block" Color="Color.Warning">@FormatoCl.Miles(pend.Cantidad) cambio(s) sin guardar</MudText> }
+                            </div>
+                            <MudStack Row="true" Spacing="1">
+                                <MudIconButton Icon="@Icons.Material.Filled.History" OnClick="() => VerHistorial(f)" aria-label="@($"Historial de {f.CodigoVariante}")" />
+                                @if (_canEdit) { <MudButton Variant="Variant.Outlined" Size="Size.Medium" OnClick="() => AbrirEditor(f)" Style="min-height:44px">Editar</MudButton> }
+                            </MudStack>
+                        </MudStack>
+                    </MudPaper>
+                }
+            </MudStack>
+        </div>
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-2 mb-12">
+            <MudText Typo="Typo.caption" Class="d-block" Color="Color.Secondary" data-testid="precios-paginacion">Mostrando @FormatoCl.Miles(_inicio + 1)–@FormatoCl.Miles(_inicio + _items.Count) de @FormatoCl.Miles(_total)</MudText>
+            @* S119 D5: en móvil sin «Por página» y con la paginación corta de Productos (una fila); en escritorio la etiqueta cabe. *@
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+                <div class="d-none d-sm-block" data-testid="precios-por-pagina"><MudSelect T="int" Value="_pageSize" ValueChanged="OnPageSize" Label="Por página" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="width:130px"><MudSelectItem Value="20">20</MudSelectItem><MudSelectItem Value="50">50</MudSelectItem><MudSelectItem Value="100">100</MudSelectItem></MudSelect></div>
+                <MudPagination Count="@_paginas" Selected="_page" SelectedChanged="OnPagina" Color="Color.Primary" BoundaryCount="1" MiddleCount="1" aria-label="Paginación de precios" />
+            </MudStack>
+        </MudStack>
+    }
+
+    @if (TotalPendientes > 0)
+    {
+        <MudPaper Elevation="8" Class="pa-3 d-flex align-center flex-wrap gap-2 barra-pendientes" data-testid="precios-pendientes">
+            <MudIcon Icon="@Icons.Material.Filled.EditNote" Color="Color.Warning" />
+            <MudText Typo="Typo.body1"><b>@TotalPendientes</b> cambio(s) sin guardar</MudText>
+            <MudSpacer />
+            <MudButton Variant="Variant.Text" OnClick="Descartar" data-testid="pendientes-descartar">Descartar</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Revisar" Style="min-height:44px" data-testid="pendientes-revisar">Revisar y guardar</MudButton>
+        </MudPaper>
+    }
+}
+
+<style>
+    .celda-editable { cursor: pointer; border-radius: 4px; padding: 2px 4px; margin: -2px -4px; min-height: 36px; }
+    .celda-editable:hover, .celda-editable:focus-visible { background: var(--mud-palette-action-default-hover); outline: 2px solid var(--mud-palette-primary); outline-offset: 1px; }
+    .barra-pendientes { position: sticky; bottom: 12px; z-index: 5; border: 1px solid var(--mud-palette-warning); }
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "q")] public string? QParam { get; set; }
+    [SupplyParameterFromQuery(Name = "estado")] public int? EstadoParam { get; set; }
+    [SupplyParameterFromQuery(Name = "cat")] public long? CatParam { get; set; }
+    [SupplyParameterFromQuery(Name = "marca")] public int? MarcaParam { get; set; }
+    [SupplyParameterFromQuery(Name = "inactivos")] public bool? InactivosParam { get; set; }
+
+    private bool _checked, _allowed, _canEdit, _loading = true;
+    private Inventa.Web.Models.Api.ApiError? _error;
+    private List<FilaPrecioDto> _items = [];
+    private ResumenPreciosDto? _resumen;
+    private List<CategoriaDto> _categorias = [];
+    private List<MarcaDto> _marcas = [];
+    private string _q = "";
+    private long? _cat;
+    private int? _marca;
+    private EstadoFiltroPrecios _estado;
+    private bool _inactivos;
+    private int _page = 1, _pageSize = 20, _total, _paginas = 1, _inicio;
+    private int _decimales;
+    private DateOnly _hoy = DateOnly.FromDateTime(DateTime.Today);
+    private readonly Dictionary<long, PendientesPrecio> _pendientes = [];
+    private readonly HashSet<long> _sel = [];
+    private long? _editandoId;
+    private decimal? _editValor;
+    private bool _cancelandoEdicion;
+    private CancellationTokenSource? _cts;
+    private int _gen;
+
+    private int TotalPendientes => _pendientes.Values.Sum(p => p.Cantidad);
+    private bool HayFiltros => !string.IsNullOrWhiteSpace(_q) || _cat.HasValue || _marca.HasValue || _estado != EstadoFiltroPrecios.Todos || _inactivos;
+    private bool TodaLaPagina => _items.Count > 0 && _items.All(i => _sel.Contains(i.IdPresProd));
+    private PendientesPrecio? Pend(long id) => _pendientes.TryGetValue(id, out var p) && p.Cantidad > 0 ? p : null;
+    private Variant VarKpi(EstadoFiltroPrecios e) => _estado == e ? Variant.Filled : Variant.Outlined;
+    private bool _filtrosAbiertos;
+    private int FiltrosActivos => (_cat.HasValue ? 1 : 0) + (_marca.HasValue ? 1 : 0) + (_estado != EstadoFiltroPrecios.Todos ? 1 : 0) + (_inactivos ? 1 : 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allowed = await PermsService.HasPermissionAsync("INVENTA_PRECIOS_PRINCIPAL_VER");
+        _canEdit = await PermsService.HasPermissionAsync("INVENTA_PRECIOS_PRINCIPAL_EDITAR");
+        _checked = true;
+        if (!_allowed) return;
+        _q = QParam ?? "";
+        _estado = EstadoParam is int e && Enum.IsDefined(typeof(EstadoFiltroPrecios), e) ? (EstadoFiltroPrecios)e : EstadoFiltroPrecios.Todos;
+        _cat = CatParam; _marca = MarcaParam; _inactivos = InactivosParam ?? false;
+        TenantCtx.OnTenantChanged += OnTenantChanged;
+        await Task.WhenAll(CargarAsync(), CargarResumenAsync(), CargarCatalogosAsync());
+    }
+
+    private void OnTenantChanged(int? local, int? pp) => _ = InvokeAsync(async () =>
+    {
+        _pendientes.Clear(); _sel.Clear(); _categorias = []; _marcas = []; _q = ""; _cat = null; _marca = null; _estado = EstadoFiltroPrecios.Todos; _page = 1;
+        await Task.WhenAll(CargarAsync(), CargarResumenAsync(), CargarCatalogosAsync());
+        StateHasChanged();
+    });
+
+    private async Task CargarCatalogosAsync()
+    {
+        try
+        {
+            _categorias = (await Catalogos.GetCategoriasAsync(CancellationToken.None) ?? []).Where(c => c.Activo).OrderBy(c => c.Nombre).ToList();
+            _marcas = (await Catalogos.GetMarcasAsync(CancellationToken.None) ?? []).Where(m => m.Activo).OrderBy(m => m.Nombre).ToList();
+        }
+        catch (Inventa.Web.Models.Api.ApiException) { }
+        catch (HttpRequestException) { }
+    }
+
+    private async Task CargarResumenAsync()
+    {
+        try { _resumen = await Api.GetResumenAsync(CancellationToken.None); }
+        catch (Inventa.Web.Models.Api.ApiException) { _resumen = null; }
+        catch (HttpRequestException) { _resumen = null; }
+        StateHasChanged();
+    }
+
+    private async Task CargarAsync()
+    {
+        _cts?.Cancel(); _cts = new CancellationTokenSource();
+        var ct = _cts.Token; var gen = ++_gen;
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            var r = await Api.GetGrillaAsync(_q, _cat, _marca, _estado, _inactivos, _page, _pageSize, ct);
+            if (gen != _gen) return;
+            _items = r?.Items.ToList() ?? [];
+            _total = r?.Total ?? 0;
+            _decimales = r?.Decimales ?? 0;
+            if (r is not null) _hoy = r.Hoy;
+            _paginas = Math.Max(1, (int)Math.Ceiling(_total / (double)_pageSize));
+            if (_page > _paginas && _total > 0) { _page = _paginas; await CargarAsync(); return; }
+            _inicio = _total == 0 ? 0 : (_page - 1) * _pageSize;
+            // Las filas con cambios pendientes se refrescan para que los tokens de concurrencia sean los vistos.
+            foreach (var f in _items) if (_pendientes.TryGetValue(f.IdPresProd, out var p)) p.Fila = f;
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex) { if (gen == _gen) _error = ex.ToApiError(); }
+        catch (OperationCanceledException) { }
+        catch (HttpRequestException) { if (gen == _gen) _error = new() { StatusCode = 0, Title = "Sin conexión", Detail = "No se pudo contactar al servidor. Intenta nuevamente." }; }
+        finally { if (gen == _gen) { _loading = false; StateHasChanged(); } }
+    }
+
+    private void SincronizarUrl()
+    {
+        var qs = new Dictionary<string, object?>
+        {
+            ["q"] = string.IsNullOrWhiteSpace(_q) ? null : _q,
+            ["estado"] = _estado == EstadoFiltroPrecios.Todos ? null : (int)_estado,
+            ["cat"] = _cat, ["marca"] = _marca, ["inactivos"] = _inactivos ? true : null
+        };
+        Nav.NavigateTo(Nav.GetUriWithQueryParameters(qs), replace: true);
+    }
+
+    // Cambiar página o filtro con cambios pendientes pide confirmación (se descartan).
+    private async Task<bool> PuedeDescartarAsync()
+    {
+        if (TotalPendientes == 0) return true;
+        var dlg = await Dialogs.ShowAsync<ConfirmDialog>("Cambios sin guardar", new DialogParameters
+        {
+            ["Title"] = "Cambios sin guardar",
+            ["Message"] = $"Tienes {TotalPendientes} cambio(s) sin guardar. Si continúas se descartan.",
+            ["ConfirmText"] = "Descartar y continuar"
+        });
+        var r = await dlg.Result;
+        if (r is null || r.Canceled) return false;
+        _pendientes.Clear();
+        return true;
+    }
+
+    private async Task Filtrar(Action aplicar)
+    {
+        if (!await PuedeDescartarAsync()) { StateHasChanged(); return; }
+        aplicar(); _page = 1; _sel.Clear(); SincronizarUrl(); await CargarAsync();
+    }
+    private Task OnBuscar(string v) => Filtrar(() => _q = v ?? "");
+    private Task OnCat(long? v) => Filtrar(() => _cat = v);
+    private Task OnMarca(int? v) => Filtrar(() => _marca = v);
+    private Task OnEstado(EstadoFiltroPrecios v) => Filtrar(() => _estado = v);
+    private Task FiltrarEstado(EstadoFiltroPrecios v) => Filtrar(() => _estado = v);
+    private Task OnInactivos(bool v) => Filtrar(() => _inactivos = v);
+    private Task OnPageSize(int v) => Filtrar(() => _pageSize = v);
+    private async Task OnPagina(int p)
+    {
+        if (!await PuedeDescartarAsync()) { StateHasChanged(); return; }
+        _page = p; _sel.Clear(); await CargarAsync();
+    }
+    private async Task Recargar() { await Task.WhenAll(CargarAsync(), CargarResumenAsync()); }
+
+    private async Task AntesDeNavegar(LocationChangingContext ctx)
+    {
+        if (TotalPendientes == 0 || new Uri(ctx.TargetLocation).AbsolutePath == new Uri(Nav.Uri).AbsolutePath) return;
+        if (!await PuedeDescartarAsync()) ctx.PreventNavigation();
+    }
+
+    // ── Selección ──
+    private void Seleccionar(long id, bool v) { if (v) _sel.Add(id); else _sel.Remove(id); }
+    private void SeleccionarPagina(bool v) { foreach (var i in _items) Seleccionar(i.IdPresProd, v); }
+
+    // ── Edición en celda del precio oficial ──
+    private void Editar(FilaPrecioDto f)
+    {
+        if (!_canEdit) return;
+        _editandoId = f.IdPresProd;
+        _editValor = Pend(f.IdPresProd)?.Precio?.Valor ?? f.Oficial?.Valor;
+        _cancelandoEdicion = false;
+    }
+    private void TeclaCelda(KeyboardEventArgs e, FilaPrecioDto f) { if (e.Key is "Enter" or " ") Editar(f); }
+    private Task TeclaOferta(KeyboardEventArgs e, FilaPrecioDto f) => e.Key is "Enter" or " " ? AbrirEditor(f) : Task.CompletedTask;
+    private void TeclaEdicion(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") { _cancelandoEdicion = true; _editandoId = null; }
+        else if (e.Key == "Enter") ConfirmarEdicion();
+    }
+    private void FinEdicion(FocusEventArgs _) { if (!_cancelandoEdicion) ConfirmarEdicion(); _cancelandoEdicion = false; }
+    private void ConfirmarEdicion()
+    {
+        if (_editandoId is not long id) return;
+        var f = _items.FirstOrDefault(i => i.IdPresProd == id);
+        if (f is null) { _editandoId = null; return; }
+        if (_editValor is not null && !PreciosUi.MontoValido(_editValor, _decimales))
+        {
+            Snackbar.Add(_decimales == 0 ? "El precio debe ser un monto entero mayor que 0." : "El precio debe ser mayor que 0.", Severity.Warning);
+            return;
+        }
+        var p = _pendientes.TryGetValue(id, out var x) ? x : _pendientes[id] = new PendientesPrecio(f);
+        p.Precio = _editValor is decimal v && v != f.Oficial?.Valor ? PreciosUi.NuevoPrecio(f, v, p.Precio?.Desde) : null;
+        _editandoId = null;
+    }
+
+    // ── Diálogos ──
+    private async Task AbrirEditor(FilaPrecioDto f)
+    {
+        if (!_canEdit) return;
+        _editandoId = null;
+        var dlg = await Dialogs.ShowAsync<EditorPrecioDialog>("Editar precio y oferta", new DialogParameters
+        {
+            ["Fila"] = f, ["Decimales"] = _decimales, ["Hoy"] = _hoy, ["Pendientes"] = Pend(f.IdPresProd)
+        }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var r = await dlg.Result;
+        if (r is null || r.Canceled || r.Data is not List<CambioPrecioDto> cambios) return;
+        var p = new PendientesPrecio(f);
+        p.Aplicar(cambios);
+        if (p.Cantidad == 0) _pendientes.Remove(f.IdPresProd); else _pendientes[f.IdPresProd] = p;
+    }
+
+    private void AgregarPendientes(FilaPrecioDto f, IEnumerable<CambioPrecioDto> cambios)
+    {
+        var p = _pendientes.TryGetValue(f.IdPresProd, out var x) ? x : _pendientes[f.IdPresProd] = new PendientesPrecio(f);
+        p.Aplicar(cambios);
+    }
+    private void QuitarPendientes(long id) => _pendientes.Remove(id);
+
+    private async Task Lote(string accion)
+    {
+        var filas = _items.Where(i => _sel.Contains(i.IdPresProd)).ToList();
+        var dlg = await Dialogs.ShowAsync<AccionLoteDialog>("Acción en lote", new DialogParameters
+        {
+            ["Accion"] = accion, ["Filas"] = filas, ["Hoy"] = _hoy
+        }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var r = await dlg.Result;
+        if (r is null || r.Canceled || r.Data is not List<CambioPrecioDto> cambios) return;
+        foreach (var c in cambios)
+        {
+            var f = filas.First(x => x.IdPresProd == c.IdPresProd);
+            AgregarPendientes(f, [c]);
+        }
+        _sel.Clear();
+        Snackbar.Add($"{FormatoCl.Miles(cambios.Count)} cambio(s) agregados. Revísalos antes de guardar.", Severity.Info);
+    }
+
+    private async Task VerHistorial(FilaPrecioDto f) =>
+        await Dialogs.ShowAsync<HistorialPreciosDialog>("Historial", new DialogParameters { ["IdPresProd"] = f.IdPresProd, ["Nombre"] = f.Nombre },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, Position = DialogPosition.CenterRight, CloseOnEscapeKey = true });
+
+    private void Descartar() { _pendientes.Clear(); _editandoId = null; }
+
+    private async Task Revisar()
+    {
+        _editandoId = null;
+        var cambios = _pendientes.Values.SelectMany(p => p.Cambios).ToList();
+        var nombres = _pendientes.ToDictionary(kv => kv.Key, kv => $"{kv.Value.Fila.CodigoVariante} {kv.Value.Fila.Nombre}");
+        var dlg = await Dialogs.ShowAsync<RevisionCambiosDialog>("Revisar cambios", new DialogParameters
+        {
+            ["Cambios"] = cambios, ["Hoy"] = _hoy, ["Nombres"] = nombres
+        }, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        var r = await dlg.Result;
+        if (r is null || r.Canceled) return;
+        if (r.Data is ResultadoCambiosPreciosDto res)
+        {
+            var guardados = cambios.Count - res.Omitidos.Count;
+            _pendientes.Clear();
+            foreach (var fila in res.Filas)
+            {
+                var i = _items.FindIndex(x => x.IdPresProd == fila.IdPresProd);
+                if (i >= 0) _items[i] = fila;
+            }
+            Snackbar.Add($"Se guardaron {guardados} cambio(s).", Severity.Success);
+            await CargarResumenAsync();
+        }
+        else if (r.Data is RevisionCambiosDialog.ConflictoPrecios conf)
+        {
+            foreach (var id in conf.Desactualizados) _pendientes.Remove(id);
+            Snackbar.Add($"{FormatoCl.Miles(conf.Desactualizados.Count)} variante(s) cambiaron mientras editabas: se recargaron y se descartaron sus cambios.", Severity.Warning);
+            await Recargar();
+        }
+    }
+
+    public void Dispose()
+    {
+        TenantCtx.OnTenantChanged -= OnTenantChanged;
+        _cts?.Cancel(); _cts?.Dispose();
+    }
+}

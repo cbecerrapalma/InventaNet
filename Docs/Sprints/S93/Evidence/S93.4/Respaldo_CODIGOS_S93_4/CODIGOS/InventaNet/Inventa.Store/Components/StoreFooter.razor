@@ -1,0 +1,121 @@
+@* S62.3 pie presentacional: bloques condicionales (sin textos "no publicada"), backoffice solo si configurado y flag habilitado. *@
+<footer class="store-footer" data-testid="store-shell-footer">
+    <div class="store-footer__grid">
+        @* Bloque marca: siempre se muestra *@
+        <div data-testid="store-footer-brand">
+            @if (!string.IsNullOrWhiteSpace(LogoUrl))
+            {
+                <img src="@LogoUrl" alt="@Nombre" class="store-footer__logo" />
+            }
+            <p class="store-footer__title">@Nombre</p>
+            @if (!string.IsNullOrWhiteSpace(Descripcion))
+            {
+                <p class="store-footer__text">@Descripcion</p>
+            }
+        </div>
+
+        @* Bloque contacto: solo si hay datos *@
+        @if (TieneContacto())
+        {
+            <div data-testid="store-footer-contact">
+                <p class="store-footer__title">Contacto</p>
+                @if (!string.IsNullOrWhiteSpace(Contacto?.Telefono)) { <p class="store-footer__text">Tel: <a href="tel:@TelHref(Contacto.Telefono)">@Contacto.Telefono</a></p> }
+                @if (!string.IsNullOrWhiteSpace(Contacto?.Email)) { <p class="store-footer__text">Email: <a href="mailto:@Contacto.Email">@Contacto.Email</a></p> }
+                @if (!string.IsNullOrWhiteSpace(Contacto?.Direccion))
+                {
+                    <p class="store-footer__text">
+                        @Contacto.Direccion@if (!string.IsNullOrWhiteSpace(Contacto?.Comuna)) { <span>, @Contacto.Comuna</span> }
+                        @if (MapUrl() is { } maps) { <span> <a href="@maps" target="_blank" rel="noopener noreferrer" aria-label="Ver en el mapa (se abre en una pestaña nueva)" data-testid="store-footer-map">Ver en el mapa</a></span> }
+                    </p>
+                }
+                @if (!string.IsNullOrWhiteSpace(Contacto?.SitioWeb)) { <p class="store-footer__text"><a href="@Contacto.SitioWeb" target="_blank" rel="noopener noreferrer" aria-label="@Contacto.SitioWeb (se abre en una pestaña nueva)" data-testid="store-footer-web">@Contacto.SitioWeb</a></p> }
+                <p class="store-footer__text"><MudButton Variant="Variant.Text" Color="Color.Primary" Href="/contacto" data-testid="store-footer-contact-link">Contáctanos</MudButton></p>
+            </div>
+        }
+
+        @* Bloque horarios: solo si hay datos *@
+        @if (Horarios is { Count: > 0 })
+        {
+            <div data-testid="store-footer-hours">
+                <p class="store-footer__title">Horarios</p>
+                <ul class="store-footer__list">
+                    @foreach (var h in Horarios)
+                    {
+                        <li>@DayName(h.DiaSemana): @(h.Cerrado ? "Cerrado" : $"{h.Apertura1}–{h.Cierre1}" + (h.Apertura2 != null ? $" / {h.Apertura2}–{h.Cierre2}" : ""))</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        @* Bloque redes: solo si hay datos *@
+        @if (Redes is { Count: > 0 })
+        {
+            <div data-testid="store-footer-social">
+                <p class="store-footer__title">Síguenos</p>
+                <nav aria-label="Redes sociales" data-testid="store-social-nav">
+                    @foreach (var s in Redes)
+                    {
+                        <a href="@s.Url" target="_blank" rel="noopener noreferrer" aria-label="@NombreRed(s.Tipo) (se abre en una pestaña nueva)" data-testid="store-social-link"><MudIcon Icon="@IconoRed(s.Tipo)" aria-hidden="true" /></a>
+                    }
+                </nav>
+            </div>
+        }
+
+        @* Bloque nosotros: solo si hay descripción *@
+        @if (!string.IsNullOrWhiteSpace(Descripcion))
+        {
+            <div data-testid="store-footer-about">
+                <p class="store-footer__title">Nosotros</p>
+                <p class="store-footer__text" data-testid="store-about-text">@Descripcion</p>
+            </div>
+        }
+    </div>
+    @* U9: enlace de administración solo si BackofficeUrl configurado Y flag en appsettings *@
+    @if (!string.IsNullOrWhiteSpace(BackofficeUrl) && MostrarAccesoAdministracion)
+    {
+        <p class="store-footer__backoffice"><a href="@BackofficeUrl" target="_blank" rel="noopener noreferrer" aria-label="Acceso administración (se abre en una pestaña nueva)" data-testid="store-backoffice-link">Acceso administración</a></p>
+    }
+    <p class="store-footer__credits" data-testid="store-footer-credits">© @Anio @Nombre</p>
+</footer>
+
+@code {
+    // S62.3 parámetros de entrada (MainLayout lee el estado y la configuración).
+    [Parameter] public string Nombre { get; set; } = "Nuestra tienda";
+    [Parameter] public string? LogoUrl { get; set; }
+    [Parameter] public string? Descripcion { get; set; }
+    [Parameter] public PublicContactDto? Contacto { get; set; }
+    [Parameter] public IReadOnlyList<PublicSocialDto> Redes { get; set; } = [];
+    [Parameter] public IReadOnlyList<PublicHourDto> Horarios { get; set; } = [];
+    [Parameter] public string? BackofficeUrl { get; set; }
+    [Parameter] public int Anio { get; set; } = DateTime.Now.Year;
+    [Parameter] public bool MostrarAccesoAdministracion { get; set; } = false;
+
+    bool TieneContacto() => Contacto is { } c &&
+        (!string.IsNullOrWhiteSpace(c.Telefono) || !string.IsNullOrWhiteSpace(c.WhatsApp) ||
+         !string.IsNullOrWhiteSpace(c.Email) || !string.IsNullOrWhiteSpace(c.Direccion) || !string.IsNullOrWhiteSpace(c.SitioWeb));
+
+    // S62.3 misma convención que MainLayout.razor:128 y Catalog.razor:271 (0 = domingo).
+    static string DayName(byte d) => d switch { 0 => "Domingo", 1 => "Lunes", 2 => "Martes", 3 => "Miércoles", 4 => "Jueves", 5 => "Viernes", 6 => "Sábado", _ => "" };
+
+    static string TelHref(string tel) => new(tel.Where(c => char.IsDigit(c) || c == '+').ToArray());
+    string? MapUrl() => StoreLinks.MapsUrl(Contacto?.Direccion, Contacto?.Comuna, Contacto?.Ciudad);
+
+    static string NombreRed(string tipo) => tipo.Trim().ToLowerInvariant() switch
+    {
+        "facebook" => "Facebook", "instagram" => "Instagram", "tiktok" => "TikTok",
+        "x" => "X", "twitter" => "X", "linkedin" => "LinkedIn", "youtube" => "YouTube",
+        "whatsapp" => "WhatsApp", _ => tipo,
+    };
+
+    static string IconoRed(string tipo) => tipo.Trim().ToLowerInvariant() switch
+    {
+        "facebook" => Icons.Custom.Brands.Facebook,
+        "instagram" => Icons.Custom.Brands.Instagram,
+        "tiktok" => Icons.Custom.Brands.TikTok,
+        "x" or "twitter" => Icons.Custom.Brands.X,
+        "linkedin" => Icons.Custom.Brands.LinkedIn,
+        "youtube" => Icons.Custom.Brands.YouTube,
+        "whatsapp" => Icons.Custom.Brands.WhatsApp,
+        _ => Icons.Material.Filled.Public,
+    };
+}

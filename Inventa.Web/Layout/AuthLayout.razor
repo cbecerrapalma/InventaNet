@@ -1,0 +1,68 @@
+@inherits LayoutComponentBase
+@inject IJSRuntime JS
+<MudThemeProvider Theme="@Inventa.Web.Theme.AppTheme.Theme" IsDarkMode="_isDarkMode" @ref="_themeProvider" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<div class="inv-auth-layout">
+    <div class="inv-auth-layout__bg" />
+    <MudContainer MaxWidth="MaxWidth.Small" Class="inv-auth-layout__container">
+        <MudPaper Class="inv-auth-layout__paper" Elevation="2">
+            <div class="inv-auth-layout__header" data-testid="authlayout-header">
+                <MudIcon Icon="@Icons.Material.Filled.Store" Size="Size.Large" Color="Color.Primary" aria-hidden="true" />
+                <div class="inv-auth-layout__brand">InventaNet Backoffice</div>
+            </div>
+            <MudIconButton
+                Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                Color="Color.Inherit"
+                OnClick="@ToggleTheme"
+                aria-label="Cambiar tema"
+                Class="inv-auth-layout__theme-toggle"
+                Edge="Edge.End"
+                data-testid="auth-theme-toggle" />
+            @Body
+        </MudPaper>
+    </MudContainer>
+</div>
+
+@code {
+    private bool _isDarkMode;
+    private MudThemeProvider? _themeProvider;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "inventanet_dark");
+                if (bool.TryParse(saved, out var parsed))
+                {
+                    _isDarkMode = parsed;
+                }
+                else if (_themeProvider is not null)
+                {
+                    _isDarkMode = await _themeProvider.GetSystemDarkModeAsync();
+                }
+                StateHasChanged();
+            }
+            catch (JSException)
+            {
+                // Prerender/sandbox: ignorar, usar valor por defecto
+            }
+            catch (InvalidOperationException)
+            {
+                // JSRuntime no disponible: ignorar
+            }
+        }
+    }
+
+    private async Task ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "inventanet_dark", _isDarkMode.ToString()); }
+        catch (JSException) { /* ignorar en prerender/sandbox */ }
+        catch (InvalidOperationException) { /* JSRuntime no disponible */ }
+    }
+}

@@ -1,0 +1,349 @@
+﻿@page "/productos/{Id}"
+@attribute [Authorize]
+@using CBP.Blazor.Formatting
+@using Inventa.Web.Models.Productos
+@inject Inventa.Web.Services.Productos.ProductosApiService Svc
+@inject Inventa.Web.Services.Precios.PreciosApiService Precios
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject IDialogService Dialogs
+@implements IDisposable
+
+@* S92: ficha de producto en modo consulta. Una sola llamada (GET api/productos/{id}/ficha) alimenta todas las pestañas;
+   precio vigente, oferta efectiva y estado en tienda vienen calculados por el servidor con las reglas públicas. *@
+<PageHeader Title="@(_ficha?.Nombre ?? "Producto")" Description="@Subtitulo" Icon="@Icons.Material.Filled.Inventory" OnBack="@(() => Nav.NavigateTo("/productos"))">
+    <Actions>
+        @if (_ficha is not null)
+        {
+            <MudTooltip Text="@(_ficha.Razones.Count == 0 ? "Sin observaciones" : string.Join(" · ", _ficha.Razones))">
+                <MudChip T="string" Color="@EstadoTiendaUi.Color(_ficha.Estado)" data-testid="ficha-estado">@EstadoTiendaUi.Texto(_ficha.Estado)</MudChip>
+            </MudTooltip>
+        }
+        @if (_canEdit && _ficha is not null)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Edit" OnClick="OpenEdit" Class="ml-2" aria-label="Editar producto">Editar</MudButton>
+        }
+    </Actions>
+</PageHeader>
+
+@if (!_checked) { <LoadingState /> }
+else if (!_allowed) { <Forbidden /> }
+else if (_loading) { <LoadingState Message="Cargando producto..." /> }
+else if (_error is not null) { <ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Load" /> }
+else if (_ficha is null) { <EmptyState Title="Producto no encontrado" Description="El producto no existe o no pertenece a tu tenant." Icon="@Icons.Material.Filled.Inventory" /> }
+else
+{
+    <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" TabPanelsClass="pa-4" Class="inv-ficha-tabs" @bind-ActivePanelIndex="_tab">
+        <MudTabPanel Text="Información" Icon="@Icons.Material.Filled.Info">
+            <MudGrid Spacing="2">
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)" data-testid="info-general">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Código</MudText><MudText><b>@_ficha.Codigo</b></MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Nombre</MudText><MudText>@_ficha.Nombre</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Categoría</MudText><MudText>@_ficha.Categoria</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Marca</MudText><MudText>@(_ficha.Marca ?? "Sin marca")</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Unidad base</MudText><MudText>@_ficha.Unidad</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)" data-testid="info-estado">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                            <MudChip T="string" Size="Size.Small" Color="@(_ficha.Activo ? Color.Success : Color.Default)">@(_ficha.Activo ? "Activo" : "Inactivo")</MudChip>
+                            <MudChip T="string" Size="Size.Small" Color="@(_ficha.VisibleStore ? Color.Success : Color.Default)">@(_ficha.VisibleStore ? "Visible en tienda" : "Oculto en tienda")</MudChip>
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Pesable</MudText><MudText>@(_ficha.EsPesable ? "Sí" : "No")</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Con lote</MudText><MudText>@(_ficha.ManejaLote ? "Sí" : "No")</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Días de vencimiento</MudText><MudText>@(_ficha.DiasVencimiento?.ToString() ?? "Sin control")</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Variantes</MudText><MudText>@_ficha.Variantes.Count</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">Imágenes</MudText><MudText>@_ficha.Imagenes</MudText>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Variantes" Icon="@Icons.Material.Filled.Category" data-testid="tab-variantes">
+            @* S94 (K6): nueva variante, edición y códigos; el servidor genera la presentación 1:1 y el código principal. *@
+            @if (_canCreate)
+            {
+                <MudStack Row="true" Justify="Justify.FlexEnd" Class="mb-2">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="NuevaVariante" data-testid="nueva-variante">Nueva variante</MudButton>
+                </MudStack>
+            }
+            @if (_ficha.Variantes.Count == 0)
+            {
+                <EmptyState Title="Sin variantes" Description="Este producto aún no tiene variantes." Icon="@Icons.Material.Filled.Category" />
+            }
+            else
+            {
+                <MudTable Items="@_ficha.Variantes" Dense="true" Hover="true" Elevation="0" Bordered="true" data-testid="tabla-variantes">
+                    <HeaderContent>
+                        <MudTh>Variante</MudTh><MudTh>Código de barras</MudTh><MudTh>Precio</MudTh><MudTh>Costo promedio</MudTh><MudTh>Stock disponible</MudTh><MudTh>Estado</MudTh>@if (_canEdit) { <MudTh></MudTh> }
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Variante"><MudText Typo="Typo.body2"><b>@context.Nombre</b></MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@context.Codigo</MudText></MudTd>
+                        <MudTd DataLabel="Código de barras">
+                            @if (context.Codigos.Count == 0) { <MudText Typo="Typo.body2" Color="Color.Warning">Sin código</MudText> }
+                            else
+                            {
+                                var principal = context.Codigos[0];
+                                <div>
+                                    <MudText Typo="Typo.body2" Style="font-family:monospace" data-testid="codigo-principal">@principal.Codigo</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@principal.Tipo@(principal.Principal ? " · principal" : "")</MudText>
+                                    @if (context.Codigos.Count > 1)
+                                    {
+                                        <details class="inv-codigos-adicionales">
+                                            <summary>+@(context.Codigos.Count - 1) adicional@(context.Codigos.Count > 2 ? "es" : "")</summary>
+                                            @foreach (var c in context.Codigos.Skip(1)) { <div style="font-family:monospace">@c.Codigo <span class="mud-text-secondary">(@c.Tipo)</span></div> }
+                                        </details>
+                                    }
+                                </div>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Precio">
+                            @if (context.PrecioVigente is null) { <MudText Typo="Typo.body2" Color="Color.Warning">Sin precio vigente</MudText> }
+                            else if (context.Oferta is { } of)
+                            {
+                                <div>
+                                    <MudText Typo="Typo.body2"><b>@FormatoCl.Moneda(of.Precio)</b> <s class="mud-text-secondary">@FormatoCl.Moneda(context.PrecioVigente.Valor)</s> @if (of.Pct is { } pct) { <MudChip T="string" Size="Size.Small" Color="Color.Error">-@FormatoCl.Porcentaje(pct)</MudChip> }</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Oferta @FormatoCl.Fecha(of.Desde)@(of.Hasta is null ? "" : $" al {FormatoCl.Fecha(of.Hasta)}")</MudText>
+                                </div>
+                            }
+                            else
+                            {
+                                <div>
+                                    <MudText Typo="Typo.body2"><b>@FormatoCl.Moneda(context.PrecioVigente.Valor)</b></MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Desde @FormatoCl.Fecha(context.PrecioVigente.Desde)</MudText>
+                                </div>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Costo promedio">@(context.CostoProm > 0 ? FormatoCl.Moneda(context.CostoProm) : "—")</MudTd>
+                        <MudTd DataLabel="Stock disponible">@FormatoCl.Miles(context.StockDisponible)</MudTd>
+                        <MudTd DataLabel="Estado">
+                            <MudChip T="string" Size="Size.Small" Color="@(EsVendible(context) ? Color.Success : Color.Default)">@(EsVendible(context) ? "A la venta" : context.Activo ? "No a la venta" : "Inactiva")</MudChip>
+                        </MudTd>
+                        @if (_canEdit)
+                        {
+                            <MudTd>
+                                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => EditarVariante(context)" aria-label="@($"Editar variante {context.Codigo}")">Editar</MudButton>
+                                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => Codigos(context)" aria-label="@($"Códigos de {context.Codigo}")">Códigos</MudButton>
+                            </MudTd>
+                        }
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudTabPanel>
+
+        <MudTabPanel Text="Imágenes" Icon="@Icons.Material.Filled.Image" data-testid="tab-imagenes">
+            <Inventa.Web.Shared.Product.ProductImagesSection IdProd="_id" />
+        </MudTabPanel>
+
+        <MudTabPanel Text="Precios" Icon="@Icons.Material.Filled.AttachMoney" data-testid="tab-precios">
+            @* S93.1 (K6): precio oficial y oferta por variante; se editan con el editor común y se revisan antes de guardar. *@
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Cada cambio crea una nueva vigencia y se revisa antes de guardar.</MudText>
+                <MudSpacer />
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Sell" Href="@UrlPrecios" data-testid="ver-en-precios">Ver en Precios y ofertas</MudButton>
+            </MudStack>
+            @if (_preciosLoading) { <LoadingState Message="Cargando precios..." /> }
+            else if (_preciosError is not null) { <ErrorState Title="@_preciosError.Title" Detail="@_preciosError.Detail" CorrelationId="@_preciosError.CorrelationId" OnRetry="LoadPrecios" /> }
+            else if (_filasPrecio.Count == 0) { <MudAlert Severity="Severity.Info">Este producto no tiene variantes con presentación.</MudAlert> }
+            else
+            {
+                <MudTable Items="@_filasPrecio" Dense="true" Hover="true" Elevation="0" Bordered="true" Breakpoint="Breakpoint.Sm" data-testid="tabla-precios-ficha">
+                    <HeaderContent><MudTh>Variante</MudTh><MudTh>Precio oficial</MudTh><MudTh>Oferta</MudTh><MudTh>Paga el cliente</MudTh><MudTh>Costo · margen</MudTh><MudTh></MudTh></HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Variante"><MudText Typo="Typo.body2"><b>@context.Variante</b></MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@context.CodigoVariante</MudText></MudTd>
+                        <MudTd DataLabel="Precio oficial">
+                            @if (context.Oficial is { } of) { <MudText Typo="Typo.body2">@FormatoCl.Moneda(of.Valor)</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">desde @FormatoCl.Fecha(of.Desde)</MudText> }
+                            else { <MudChip T="string" Size="Size.Small" Color="Color.Error">Sin precio</MudChip> }
+                            @if (context.Programado is { } pr) { <MudText Typo="Typo.caption" Color="Color.Info">Programado @FormatoCl.Moneda(pr.Valor) el @FormatoCl.Fecha(pr.Desde)</MudText> }
+                        </MudTd>
+                        <MudTd DataLabel="Oferta">
+                            <MudText Typo="Typo.body2">@TextoOfertaFila(context)</MudText>
+                            @if (context.OfertasSinEfecto > 0) { <MudText Typo="Typo.caption" Color="Color.Warning">⚠ @context.OfertasSinEfecto sin efecto</MudText> }
+                        </MudTd>
+                        <MudTd DataLabel="Paga el cliente"><b>@(context.PrecioEfectivo is decimal e ? FormatoCl.Moneda(e) : "—")</b></MudTd>
+                        <MudTd DataLabel="Costo · margen">@TextoCosto(context)</MudTd>
+                        <MudTd>
+                            @if (_canEdit) { <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="() => EditarPrecio(context)" Style="min-height:36px" data-testid="ficha-editar-precio">Editar</MudButton> }
+                            <MudIconButton Icon="@Icons.Material.Filled.History" Size="Size.Small" OnClick="() => VerHistorial(context)" aria-label="@($"Historial de {context.CodigoVariante}")" />
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudTabPanel>
+
+        <MudTabPanel Text="Revisión" Icon="@Icons.Material.Filled.FactCheck" data-testid="tab-revision">
+            <MudPaper Class="pa-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)" data-testid="review-comercial">
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-2">
+                    <MudChip T="string" Size="Size.Small" Color="@EstadoTiendaUi.Color(_ficha.Estado)">@EstadoTiendaUi.Texto(_ficha.Estado)</MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="@(_vendibles > 0 ? Color.Success : Color.Warning)">Variantes a la venta: @_vendibles de @_ficha.Variantes.Count</MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="@(_conPrecio > 0 ? Color.Success : Color.Warning)">Con precio vigente: @_conPrecio</MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="@(_ficha.Imagenes > 0 ? Color.Success : Color.Warning)">Con imagen: @_ficha.Imagenes</MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="@(_ficha.Marca is not null ? Color.Success : Color.Warning)" data-testid="review-marca">Con marca: @(_ficha.Marca is not null ? "sí" : "no")</MudChip>
+                </MudStack>
+                @if (_ficha.Razones.Count == 0) { <MudText Typo="Typo.body2">Sin observaciones.</MudText> }
+                else
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Observaciones:</MudText>
+                    @foreach (var r in _ficha.Razones) { <MudText Typo="Typo.body2">· @r</MudText> }
+                }
+            </MudPaper>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Tienda" Icon="@Icons.Material.Filled.Store" data-testid="tab-vista-tienda">
+            @if (!_ficha.VisibleStore) { <MudAlert Severity="Severity.Info" Class="mb-2" data-testid="preview-no-publicado">Este producto no está visible en la tienda. Así se vería si lo publicas.</MudAlert> }
+            <MudPaper Class="pa-3 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)" data-testid="preview-card">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@_ficha.Categoria@(_ficha.Marca is null ? "" : $" · {_ficha.Marca}")</MudText>
+                <MudText Typo="Typo.h6" HtmlTag="h2">@_ficha.Nombre</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@(_ficha.ImagenPrincipal is null ? "Sin imagen: la tienda muestra una imagen genérica." : "Con imagen principal.")</MudText>
+            </MudPaper>
+            @{ var vendibles = _ficha.Variantes.Where(EsVendible).ToList(); }
+            @if (vendibles.Count == 0) { <MudAlert Severity="Severity.Warning">No hay variantes a la venta: la tienda no mostraría este producto.</MudAlert> }
+            else
+            {
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" data-testid="preview-variantes">
+                    @foreach (var v in vendibles)
+                    {
+                        <MudPaper Class="pa-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default);min-width:150px">
+                            <MudText Typo="Typo.subtitle2">@v.Nombre</MudText>
+                            @if (v.PrecioVigente is null) { <MudText Typo="Typo.body2" Color="Color.Secondary">Precio a consultar</MudText> }
+                            else if (v.Oferta is { } of)
+                            {
+                                <MudText Typo="Typo.body1"><b>@FormatoCl.Moneda(of.Precio)</b></MudText>
+                                <MudText Typo="Typo.caption"><s>@FormatoCl.Moneda(v.PrecioVigente.Valor)</s>@(of.Pct is { } p ? $" -{FormatoCl.Porcentaje(p)}" : "")</MudText>
+                            }
+                            else { <MudText Typo="Typo.body1"><b>@FormatoCl.Moneda(v.PrecioVigente.Valor)</b></MudText> }
+                        </MudPaper>
+                    }
+                </MudStack>
+            }
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    [CascadingParameter] public Inventa.Web.Shared.MigaContexto? Miga { get; set; }
+    private long _id;
+    private bool _checked, _allowed, _canEdit, _canCreate;
+    private bool _loading = true; private Inventa.Web.Models.Api.ApiError? _error;
+    private FichaProductoDto? _ficha;
+    private int _tab;
+    private List<Inventa.Web.Models.Precios.FilaPrecioDto> _filasPrecio = []; private bool _preciosLoading; private Inventa.Web.Models.Api.ApiError? _preciosError;
+    // S123 D3: cifras de la revisión comercial (variantes a la venta y con precio vigente).
+    private int _vendibles, _conPrecio;
+    private int _decimales; private DateOnly _hoy = DateOnly.FromDateTime(DateTime.Today);
+    private string UrlPrecios => _ficha is null ? "/precios" : $"/precios?q={Uri.EscapeDataString(_ficha.Codigo)}";
+    private static string TextoOfertaFila(Inventa.Web.Models.Precios.FilaPrecioDto f) =>
+        f.Oferta is { } o ? Inventa.Web.Shared.Price.PreciosUi.TextoOferta(o) : "—";
+    private static string TextoCosto(Inventa.Web.Models.Precios.FilaPrecioDto f) =>
+        (f.CostoProm > 0 ? FormatoCl.Moneda(f.CostoProm) : "—") + (f.MargenPct is decimal m ? $" · margen {FormatoCl.Porcentaje(m, 1)}" : "");
+    private string Subtitulo => _ficha is null ? "Cargando..."
+        : string.Join(" · ", new[] { _ficha.Codigo, _ficha.Categoria, _ficha.Marca }.Where(x => !string.IsNullOrWhiteSpace(x)));
+    // Misma condición de "a la venta" que la regla pública (variante activa + presentación activa de venta).
+    private static bool EsVendible(FichaVarianteDto v) => v.Activo && v.Presentacion is { Activo: true, EsVenta: true };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allowed = await PermsService.HasPermissionAsync("INVENTA_PRODUCTOS_DETALLE_VER");
+        _canEdit = await PermsService.HasPermissionAsync("INVENTA_PRODUCTOS_DETALLE_EDITAR");
+        _canCreate = await PermsService.HasPermissionAsync("INVENTA_PRODUCTOS_DETALLE_CREAR");
+        _checked = true;
+        if (!_allowed) return;
+        TenantCtx.OnTenantChanged += OnTenantChanged;
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_allowed) return;
+        if (long.TryParse(Id, out var v) && v != _id) { _id = v; await Load(); }
+    }
+    private void OnTenantChanged(int? localId, int? passPlatId) { _ = InvokeAsync(async () => { await Load(); StateHasChanged(); }); }
+    private async Task Load()
+    {
+        if (!long.TryParse(Id, out _id)) { _error = new() { Title = "Producto inválido", Detail = $"«{Id}» no es un identificador de producto." }; _loading = false; return; }
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            _ficha = await Svc.GetFichaAsync(_id, CancellationToken.None);
+            _vendibles = _ficha is null ? 0 : _ficha.Variantes.Count(EsVendible);
+            _conPrecio = _ficha is null ? 0 : _ficha.Variantes.Count(v => EsVendible(v) && v.PrecioVigente is not null);
+            Miga?.Definir($"/productos/{_id}", _ficha?.Nombre);
+            if (_ficha is not null) await LoadPrecios();
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex) when (ex.StatusCode == 404) { _ficha = null; }
+        catch (Inventa.Web.Models.Api.ApiException ex) { _error = ex.ToApiError(); }
+        catch (HttpRequestException) { _error = new() { Title = "Sin conexión", Detail = "No se pudo contactar al servidor. Intenta nuevamente." }; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+    // S93.1: filas de «Precios y ofertas» de este producto (misma regla que la tienda).
+    private async Task LoadPrecios()
+    {
+        if (_ficha is null) { _filasPrecio = []; return; }
+        _preciosLoading = true; _preciosError = null; StateHasChanged();
+        try
+        {
+            var r = await Precios.GetGrillaAsync(_ficha.Codigo, null, null, Inventa.Web.Models.Precios.EstadoFiltroPrecios.Todos, true, 1, 100, CancellationToken.None);
+            _filasPrecio = r?.Items.Where(f => f.IdProd == _id).ToList() ?? [];
+            _decimales = r?.Decimales ?? 0;
+            if (r is not null) _hoy = r.Hoy;
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex) { _preciosError = ex.ToApiError(); }
+        catch (HttpRequestException) { _preciosError = new() { Title = "Sin conexión", Detail = "No se pudo contactar al servidor." }; }
+        finally { _preciosLoading = false; StateHasChanged(); }
+    }
+    private async Task EditarPrecio(Inventa.Web.Models.Precios.FilaPrecioDto f)
+    {
+        var dlg = await Dialogs.ShowAsync<Inventa.Web.Shared.Price.EditorPrecioDialog>("Editar precio y oferta", new DialogParameters
+        {
+            ["Fila"] = f, ["Decimales"] = _decimales, ["Hoy"] = _hoy, ["TextoAceptar"] = "Revisar y guardar"
+        }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var r = await dlg.Result;
+        if (r is null || r.Canceled || r.Data is not List<Inventa.Web.Models.Precios.CambioPrecioDto> { Count: > 0 } cambios) return;
+        var rev = await Dialogs.ShowAsync<Inventa.Web.Shared.Price.RevisionCambiosDialog>("Revisar cambios", new DialogParameters
+        {
+            ["Cambios"] = cambios, ["Hoy"] = _hoy
+        }, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var rr = await rev.Result;
+        if (rr is null || rr.Canceled) return;
+        if (rr.Data is Inventa.Web.Models.Precios.ResultadoCambiosPreciosDto) Snackbar.Add("Precios guardados.", Severity.Success);
+        else Snackbar.Add("El precio cambió mientras editabas: se recargó.", Severity.Warning);
+        await Load();
+    }
+    private async Task VerHistorial(Inventa.Web.Models.Precios.FilaPrecioDto f) =>
+        await Dialogs.ShowAsync<Inventa.Web.Shared.Price.HistorialPreciosDialog>("Historial", new DialogParameters { ["IdPresProd"] = f.IdPresProd, ["Nombre"] = f.Nombre },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, Position = DialogPosition.CenterRight, CloseOnEscapeKey = true });
+    private async Task OpenEdit()
+    {
+        try
+        {
+            var prod = await Svc.GetAsync(_id, CancellationToken.None);
+            if (prod is null) return;
+            var dlg = await Dialogs.ShowAsync<Inventa.Web.Shared.Product.ProductFormDialog>("Editar producto", new DialogParameters { ["Model"] = prod });
+            var r = await dlg.Result; if (r is not null && !r.Canceled) await Load();
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex) { Snackbar.Add(ex.ToApiError().Detail ?? "No se pudo abrir el producto.", Severity.Error); }
+    }
+    // S94 (K6): las tres acciones recargan la ficha y los precios al cerrar con cambios.
+    private async Task NuevaVariante()
+    {
+        var dlg = await Dialogs.ShowAsync<Inventa.Web.Shared.Product.VariantFormDialog>("Nueva variante", new DialogParameters { ["IdProd"] = _id },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var r = await dlg.Result; if (r is not null && !r.Canceled) await Load();
+    }
+    private async Task EditarVariante(FichaVarianteDto v)
+    {
+        var dlg = await Dialogs.ShowAsync<Inventa.Web.Shared.Product.VariantFormDialog>("Editar variante", new DialogParameters { ["Variante"] = v },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var r = await dlg.Result; if (r is not null && !r.Canceled) await Load();
+    }
+    private async Task Codigos(FichaVarianteDto v)
+    {
+        var dlg = await Dialogs.ShowAsync<Inventa.Web.Shared.Product.CodigosVarianteDialog>("Códigos de barra", new DialogParameters { ["IdProd"] = _id, ["Variante"] = v },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var r = await dlg.Result; if (r is not null && !r.Canceled && r.Data is true) await Load();
+    }
+    public void Dispose() { TenantCtx.OnTenantChanged -= OnTenantChanged; }
+}

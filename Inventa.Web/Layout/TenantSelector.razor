@@ -1,0 +1,92 @@
+@* S92.2-K6: reescrito con la API de MudMenu de MudBlazor 9 (ActivatorContent +
+   ChildContent como hijos directos; sin MudMenuItems; sin Color en MudMenuItem
+   ni Dense en MudButton). Activador e items >= 44 px. *@
+@using Inventa.Web.Models.Tenant
+@using Inventa.Web.Services.Auth
+@using Inventa.Web.Services.Tenant
+@inject TenantService TenantService
+@inject TenantContextService TenantContext
+@inject AuthService AuthService
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<div data-testid="tenant-selector" class="inv-tenant-selector-wrapper">
+    <MudMenu Dense="false" AriaLabel="@($"Tenant activo: {_currentNombre}")">
+        <ActivatorContent>
+            <MudButton Variant="Variant.Outlined" Color="Color.Inherit" Class="inv-tenant-indicator" Style="min-height:44px"
+                       OnClick="@context.ToggleAsync" aria-label="@($"Tenant activo: {_currentNombre}")">
+                <MudIcon Icon="@Icons.Material.Filled.Business" Size="Size.Small" Class="me-1" />
+                <span class="inv-tenant-indicator__nombre">@_currentNombre</span>
+                <MudIcon Icon="@Icons.Material.Filled.ExpandMore" Size="Size.Small" Class="ms-1" />
+            </MudButton>
+        </ActivatorContent>
+        <ChildContent>
+            @foreach (var t in _tenants)
+            {
+                <MudMenuItem OnClick="@(() => OnTenantClick(t))"
+                             Icon="@(t.IdTenant == _currentId ? Icons.Material.Filled.Check : null)"
+                             IconColor="Color.Success"
+                             aria-label="@($"Cambiar a tenant {t.Nombre}")">
+                    @t.Nombre (@t.Codigo)
+                </MudMenuItem>
+            }
+            <MudDivider />
+            <MudMenuItem OnClick="OnChangeTenantClick"
+                         Icon="@Icons.Material.Filled.SwapHoriz"
+                         IconColor="Color.Secondary">
+                Cambiar de tenant…
+            </MudMenuItem>
+        </ChildContent>
+    </MudMenu>
+</div>
+
+@code {
+    private List<TenantItemDto> _tenants = [];
+    private int _currentId;
+    private string _currentNombre = "Tenant";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _tenants = await TenantService.GetMyTenantsAsync();
+            var current = await TenantContext.GetCurrentTenantIdAsync();
+            if (current.HasValue && _tenants.Any(t => t.IdTenant == current.Value))
+            {
+                _currentId = current.Value;
+                var t = _tenants.FirstOrDefault(x => x.IdTenant == current.Value);
+                _currentNombre = t?.Nombre ?? "Tenant";
+            }
+            else if (_tenants.Count > 0)
+            {
+                _currentId = _tenants[0].IdTenant;
+                _currentNombre = _tenants[0].Nombre;
+                await TenantContext.SetCurrentTenantAsync(_currentId, _tenants[0].IdTenantPassPlat);
+                // S92.2-K7: el tenant cambió → la caché de mis-tenants se invalida.
+                TenantService.InvalidateCache();
+            }
+            if (current.HasValue) await TenantContext.ValidateAndFixAsync(_tenants);
+        }
+        catch (Exception)
+        {
+            Snackbar.Add("No se pudieron cargar los tenants.", Severity.Warning);
+        }
+    }
+
+    private async Task OnTenantClick(TenantItemDto tenant)
+    {
+        if (_currentId == tenant.IdTenant) return;
+        _currentId = tenant.IdTenant;
+        _currentNombre = tenant.Nombre;
+        await TenantContext.SetCurrentTenantAsync(tenant.IdTenant, tenant.IdTenantPassPlat);
+        // S92.2-K7: el tenant cambió → la caché de mis-tenants se invalida.
+        TenantService.InvalidateCache();
+        Snackbar.Add($"Tenant activo: {tenant.Nombre}", Severity.Success);
+    }
+
+    private async Task OnChangeTenantClick()
+    {
+        await AuthService.LogoutAsync();
+        Nav.NavigateTo("/login", forceLoad: true);
+    }
+}

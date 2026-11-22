@@ -1,0 +1,66 @@
+@using Inventa.Web.Models.Clientes
+@inject Inventa.Web.Services.Clientes.ClientesApiService Svc
+@inject ISnackbar Snackbar
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">@(Model is null ? "Nuevo cliente para el tenant actual." : $"Editando a {Model.Nombre}")</MudText>
+            <MudTextField @bind-Value="_model.Codigo" Label="Código" Variant="Variant.Outlined" Required="true" MaxLength="20" Immediate="true" aria-label="Código cliente" />
+            <MudTextField @bind-Value="_model.Nombre" Label="Nombre" Variant="Variant.Outlined" Required="true" MaxLength="120" Immediate="true" aria-label="Nombre cliente" />
+            <MudTextField @bind-Value="_model.RUT" Label="RUT" Variant="Variant.Outlined" MaxLength="20" Immediate="true" Clearable="true" aria-label="RUT" HelperText="Opcional" />
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_error.Detail<br /><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText></MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="_submitting" aria-label="Guardar cliente">@(_submitting ? "Guardando..." : "Guardar")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public ClienteDto? Model { get; set; }
+    private CreateClienteDto _model = new();
+    private bool _submitting;
+    private Inventa.Web.Models.Api.ApiError? _error;
+    protected override void OnInitialized()
+    {
+        if (Model is not null)
+        {
+            _model.Codigo = Model.Codigo;
+            _model.Nombre = Model.Nombre;
+            _model.RUT = Model.RUT;
+        }
+    }
+    private void Cancel() => MudDialog.Cancel();
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_model.Codigo) || string.IsNullOrWhiteSpace(_model.Nombre))
+        {
+            Snackbar.Add("Complete código y nombre.", Severity.Warning); return;
+        }
+        _submitting = true; _error = null; StateHasChanged();
+        try
+        {
+            if (Model is null)
+            {
+                await Svc.CreateAsync(_model, CancellationToken.None);
+                Snackbar.Add("Cliente creado.", Severity.Success);
+            }
+            else
+            {
+                await Svc.UpdateAsync(Model.IdCliente, _model, CancellationToken.None);
+                Snackbar.Add("Cliente actualizado.", Severity.Success);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Inventa.Web.Models.Api.ApiException ex)
+        {
+            _error = ex.ToApiError();
+            Snackbar.Add($"No fue posible guardar. Código de seguimiento: {_error.CorrelationId}", Severity.Error);
+        }
+        finally { _submitting = false; StateHasChanged(); }
+    }
+}

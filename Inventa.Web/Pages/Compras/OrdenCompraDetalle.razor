@@ -1,0 +1,99 @@
+@page "/compras/ordenes/{Id}"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Compras.ComprasApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@implements IDisposable
+
+<PageHeader Title="Detalle Orden" Description="Detalle de orden de compra." Icon="@Icons.Material.Filled.ListAlt" />
+
+@if (!_checked){<LoadingState />}
+else if (!_allowed){<Forbidden />}
+else if (_loading){<LoadingState Message="Cargando orden..." />}
+else if (_error is not null){<ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Reload" />}
+else if (_orden is null){<MudAlert Severity="Severity.Warning" Class="mb-3">Orden no encontrada.</MudAlert><MudButton Color="Color.Primary" Href="/compras/ordenes" StartIcon="@Icons.Material.Filled.ArrowBack">Volver</MudButton>}
+else
+{
+    <MudPaper Class="pa-4 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="2" Class="mb-3">
+            <MudText Typo="Typo.h6" Style="overflow-wrap:anywhere">@_orden.NumOrden</MudText>
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                <MudChip T="string" Size="Size.Small" Color="@EstadoColor(_orden.Estado)">@EstadoNombre(_orden.Estado)</MudChip>
+                @if (_canRecibir && (_orden.Estado is 1 or 2)){<MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Inventory" OnClick="OpenReceive" aria-label="Recepcionar orden">Recepcionar</MudButton>}
+            </MudStack>
+        </MudStack>
+        <MudGrid Spacing="3" data-testid="ficha-orden">
+            <MudItem xs="12" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Proveedor</MudText><MudText>@_orden.ProveedorNombre</MudText></MudItem>
+            <MudItem xs="6" md="2"><MudText Typo="Typo.caption" Color="Color.Secondary">Fecha orden</MudText><MudText>@FormatoCl.Fecha(_orden.FecOrden)</MudText></MudItem>
+            <MudItem xs="6" md="2"><MudText Typo="Typo.caption" Color="Color.Secondary">Fecha entrega</MudText><MudText>@(_orden.FecEntrega is null ? "—" : FormatoCl.Fecha(_orden.FecEntrega))</MudText></MudItem>
+            <MudItem xs="6" md="2"><MudText Typo="Typo.caption" Color="Color.Secondary">Total</MudText><MudText Typo="Typo.subtitle2">@FormatoCl.Moneda(_orden.Total)</MudText></MudItem>
+            <MudItem xs="6" md="2"><MudText Typo="Typo.caption" Color="Color.Secondary">Creación</MudText><MudText>@FormatoCl.FechaHora(_orden.FecCrea)</MudText></MudItem>
+            <MudItem xs="12"><MudText Typo="Typo.caption" Color="Color.Secondary">Observaciones</MudText><MudText>@(string.IsNullOrWhiteSpace(_orden.Observaciones)? "—" : _orden.Observaciones)</MudText></MudItem>
+        </MudGrid>
+        @if (!_canRecibir && (_orden.Estado is 1 or 2)){<MudAlert Severity="Severity.Info" Class="mt-3" Variant="Variant.Outlined">No tienes permiso para recepcionar órdenes.</MudAlert>}
+    </MudPaper>
+
+    <MudText Typo="Typo.h6" Class="mb-2">Productos (@FormatoCl.Miles(_orden.Detalles.Count))</MudText>
+    @if (_orden.Detalles.Count==0)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-3">La orden no tiene productos.</MudAlert>
+    }
+    else
+    {
+        <MudTable Items="@_orden.Detalles" Dense="true" Hover="true" Striped="true" Bordered="true" Elevation="0" Class="mb-3 inv-tabla-compacta inv-tabla-tarjeta" data-testid="tabla-orden-lineas">
+            <HeaderContent>
+                <MudTh>Producto</MudTh><MudTh>Variante</MudTh><MudTh>Cantidad</MudTh><MudTh>Precio unit.</MudTh><MudTh>Subtotal</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Producto" Class="inv-celda-titulo"><div><MudLink Href="@($"/productos/{context.IdProd}")">@context.ProdNombre</MudLink><MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block">@context.ProdCodigo</MudText></div></MudTd>
+                <MudTd DataLabel="Variante">@context.VarNombre</MudTd>
+                <MudTd DataLabel="Cantidad">@FormatoCl.Cantidad(context.Cantidad)</MudTd>
+                <MudTd DataLabel="Precio unit.">@FormatoCl.Moneda(context.PrecioUnitario)</MudTd>
+                <MudTd DataLabel="Subtotal">@FormatoCl.Moneda(context.Subtotal)</MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" Href="/compras/ordenes" Class="mt-3">Volver al listado</MudButton>
+}
+
+@code{
+    [Parameter] public string? Id{get;set;}
+    [CascadingParameter] public Inventa.Web.Shared.MigaContexto? Miga { get; set; }
+    private bool _checked,_allowed,_canRecibir; private bool _loading=true; private Inventa.Web.Models.Api.ApiError? _error;
+    private Inventa.Web.Models.Compras.OrdenCompraDto? _orden;
+    private CancellationTokenSource? _cts;
+    protected override async Task OnInitializedAsync(){
+        _allowed=await PermsService.HasPermissionAsync("INVENTA_COMPRAS_ORDENES_DETALLE_VER");
+        _canRecibir=await PermsService.HasPermissionAsync("INVENTA_COMPRAS_ORDENES_DETALLE_RECIBIR");
+        _checked=true; if(!_allowed) return;
+        TenantCtx.OnTenantChanged+=OnTenantChanged; await LoadAsync();
+    }
+    private void OnTenantChanged(int? localId, int? passPlatId){ _ = OnTenantChangedAsync(localId); }
+    private async Task OnTenantChangedAsync(int? localId){ _orden=null; await InvokeAsync(async()=>{_loading=true; StateHasChanged(); await LoadAsync(); StateHasChanged();}); }
+    private async Task LoadAsync(){
+        if(!long.TryParse(Id,out var id)){_orden=null; _loading=false; return;}
+        _cts?.Cancel(); _cts=new CancellationTokenSource(); var ct=_cts.Token;
+        _loading=true; _error=null; StateHasChanged();
+        try{
+            _orden=await Svc.GetOrdenAsync(id, ct);
+            Miga?.Definir($"/compras/ordenes/{id}", _orden?.NumOrden);
+        }catch(Inventa.Web.Models.Api.ApiException ex){
+            if(ex.StatusCode==404) _orden=null;
+            else { _error=ex.ToApiError(); if(ex.StatusCode==401) Snackbar.Add("Sesión expirada",Severity.Warning); }
+        }catch(OperationCanceledException){} catch(Exception ex){ _error=new(){StatusCode=0, Title="Error", Detail=ex.Message};}
+        finally{ _loading=false; StateHasChanged(); }
+    }
+    private async Task Reload()=> await LoadAsync();
+    private string EstadoNombre(byte e)=> e switch{1=>"Pendiente",2=>"Aprobada",3=>"Recibida",4=>"Cancelada", _=>$"Estado {e}"};
+    private Color EstadoColor(byte e)=> e switch{1=>Color.Warning,2=>Color.Info,3=>Color.Success,4=>Color.Error,_=>Color.Default};
+
+    private async Task OpenReceive(){
+        if(_orden is null) return;
+        var pars=new DialogParameters{ ["OrdenId"]=_orden.IdOrdenCompra };
+        var dlg=await Dialogs.ShowAsync<Inventa.Web.Shared.Purchase.ReceivePurchaseOrderDialog>("Recepcionar orden", pars, new DialogOptions{ MaxWidth=MaxWidth.Medium, FullWidth=true });
+        var r=await dlg.Result; if(r is not null && !r.Canceled){ Snackbar.Add("Orden recepcionada: el stock quedó actualizado.",Severity.Info); await LoadAsync(); }
+    }
+    public void Dispose(){ TenantCtx.OnTenantChanged-=OnTenantChanged; _cts?.Cancel(); _cts?.Dispose(); }
+}

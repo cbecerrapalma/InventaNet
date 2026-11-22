@@ -1,0 +1,49 @@
+@page "/catalogos/unidades"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Catalogos.CatalogosApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService Perms
+@inject ISnackbar Snackbar
+<PageHeader Title="Unidades" Description="Unidades de medida comunes a todos los tenants." Icon="@Icons.Material.Filled.Straighten" />
+
+@if(!_checked){<LoadingState />}
+else if(!_allowed){<Forbidden />}
+else if(_loading){<LoadingState Message="Cargando unidades..." />}
+else if(_error is not null){<ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Load" />}
+else
+{
+    <MudPaper Class="pa-3 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_search" Label="Buscar..." Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="250" OnDebounceIntervalElapsed="ApplyFilter" Clearable="true" aria-label="Buscar unidades" /></MudItem>
+            <MudItem xs="12" md="6" Class="d-flex justify-end align-center"><MudTooltip Text="Actualizar"><MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="Load" aria-label="Actualizar" /></MudTooltip><MudChip T="string" Color="Color.Info" Size="Size.Small" Class="ml-2">Global · Solo lectura</MudChip></MudItem>
+        </MudGrid>
+    </MudPaper>
+    @if(_filtered.Count==0){<EmptyState Title="Sin unidades" Description="@(_all.Count==0?"No existen unidades.":"No hay resultados.")" Icon="@Icons.Material.Filled.Straighten" />}
+    else{
+        <MudTable Items="@_paged" Dense="true" Hover="true" Elevation="0" Bordered="true" Class="mb-2 inv-tabla-compacta inv-tabla-lista" data-testid="tabla-unidades">
+            <HeaderContent><MudTh>Código</MudTh><MudTh>Nombre</MudTh></HeaderContent>
+            <RowTemplate><MudTd DataLabel="Código"><b>@context.Codigo</b></MudTd><MudTd DataLabel="Nombre" Class="inv-celda-titulo">@context.Nombre</MudTd></RowTemplate>
+        </MudTable>
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap"><MudText Typo="Typo.caption" Color="Color.Secondary" data-testid="paginacion-texto">Mostrando @FormatoCl.Miles(_start+1)–@FormatoCl.Miles(_end) de @FormatoCl.Miles(_filtered.Count)</MudText><MudPagination Count="@_pageCount" Selected="_page" SelectedChanged="OnPageChanged" Color="Color.Primary" BoundaryCount="1" MiddleCount="1" aria-label="Paginación unidades" /></MudStack>
+    }
+}
+@code{
+    private bool _checked,_allowed; private bool _loading=true; private Inventa.Web.Models.Api.ApiError? _error;
+    private List<Inventa.Web.Models.Catalogos.UnidadDto> _all=[]; private List<Inventa.Web.Models.Catalogos.UnidadDto> _filtered=[]; private List<Inventa.Web.Models.Catalogos.UnidadDto> _paged=[];
+    private string _search=""; private int _page=1,_pageSize=20,_pageCount=1,_start,_end; private CancellationTokenSource? _cts;
+    protected override async Task OnInitializedAsync(){ _allowed=await Perms.HasPermissionAsync("INVENTA_CATALOGOS_UNIDADES_VER"); _checked=true; if(!_allowed) return; await Load(); }
+    private async Task Load(){
+        _cts?.Cancel(); _cts=new();
+        _loading=true;_error=null;StateHasChanged();
+        try{ _all = await Svc.GetUnidadesAsync(_cts.Token) ?? []; ApplyFilter();}
+        catch(Inventa.Web.Models.Api.ApiException ex){_error=ex.ToApiError();}
+        catch(OperationCanceledException){}
+        finally{_loading=false;StateHasChanged();}
+    }
+    private void ApplyFilter(){
+        var q=_all.AsEnumerable();
+        if(!string.IsNullOrWhiteSpace(_search)){ var s=_search.Trim(); q=q.Where(u=> u.Codigo.Contains(s,StringComparison.OrdinalIgnoreCase)||u.Nombre.Contains(s,StringComparison.OrdinalIgnoreCase));}
+        _filtered=q.ToList(); _page=1; UpdatePaged();
+    }
+    private void UpdatePaged(){ _pageCount=Math.Max(1,(int)Math.Ceiling(_filtered.Count/(double)_pageSize)); _page=Math.Clamp(_page,1,_pageCount); _start=(_page-1)*_pageSize; _end=Math.Min(_start+_pageSize,_filtered.Count); _paged=_filtered.Skip(_start).Take(_pageSize).ToList(); }
+    private void OnPageChanged(int p){_page=p; UpdatePaged();}
+}

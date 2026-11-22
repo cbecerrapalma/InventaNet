@@ -1,0 +1,20 @@
+@using Inventa.Web.Models.Api
+<MudAlert Severity="@Severity" Variant="Variant.Filled" Class="mb-3">@Title
+    @if (!string.IsNullOrWhiteSpace(Detail)) { <br /><MudText Typo="Typo.caption">@Detail</MudText> }
+    @if (!string.IsNullOrWhiteSpace(CorrelationId)) { <br /><MudText Typo="Typo.caption">Código de seguimiento: @CorrelationId</MudText> }
+</MudAlert>
+<MudStack Row="true" Spacing="2">
+    @if (OnRetry.HasDelegate) { <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="OnRetry">Reintentar</MudButton> }
+    <MudButton Color="Color.Secondary" Variant="Variant.Outlined" Href="/">Ir al inicio</MudButton>
+    <MudButton Color="Color.Default" Variant="Variant.Text" OnClick="GoBack">Volver</MudButton>
+</MudStack>
+@code {
+    [Parameter] public string Title { get; set; } = "Error";
+    [Parameter] public string? Detail { get; set; }
+    [Parameter] public string? CorrelationId { get; set; }
+    [Parameter] public Severity Severity { get; set; } = Severity.Error;
+    [Parameter] public EventCallback OnRetry { get; set; }
+    [Inject] NavigationManager Nav { get; set; } = default!;
+    private void GoBack() => Nav.NavigateTo("javascript:history.back()");
+    public static ErrorState FromApiError(ApiError e) => new() { };
+}

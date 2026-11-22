@@ -1,0 +1,237 @@
+@inherits LayoutComponentBase
+@inject StorefrontState SfState
+@inject CatalogApiService CatApi
+@inject IConfiguration Config
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IStoreAuthService StoreAuth
+@implements IDisposable
+@using Inventa.Store.Theme
+@using Inventa.Store.Components
+@using Microsoft.AspNetCore.Components.Authorization
+<MudThemeProvider Theme="_theme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+<HeadContent>
+    @* S65.1 favicon por defecto (incondicional); el tenant lo reemplaza si publica el suyo. *@
+    <link rel="icon" type="image/svg+xml" href="@(_favicon ?? "favicon.svg")" data-testid="store-favicon" />
+    <meta name="theme-color" content="@_themeColor" data-testid="store-theme-color" />
+    @* F5: NO definir PageTitle aquí - cada página define el suyo *@
+</HeadContent>
+@* S62.3 skip link: primer enfocable; FocusAsync (Blazor built-in) mueve foco y scroll al main. *@
+<a href="#main-content" @onclick="SkipToContent" @onclick:preventDefault="true" class="sr-only-focusable" data-testid="store-skip-link">Saltar al contenido</a>
+<MudLayout>
+    <header class="store-mega-header">
+        <StoreHeader @ref="_header"
+                     Nombre="@_name"
+                     LogoUrl="@_logo"
+                     AnuncioTexto="@SfState.Branding.AnuncioTexto"
+                     Query="@_query"
+                     MenuOpen="@_menuOpen"
+                     OnMenuClick="OnMenuClick"
+                     IsAuthenticated="@_isAuthenticated"
+                     UserDisplayName="@_userDisplayName"
+                     LoginHref="@_loginHref"
+                     OnLogout="@OnLogout"
+                     SessionReady="@_sessionReady"
+                     IsOnLoginPage="@_isOnLoginPage" />
+        @* S71 mega-menú escritorio: oculto en <960px por CSS; sin hijas => solo enlaces. *@
+        @if (_catNodes.Count > 0)
+        {
+            <CategoryMegaMenu Raices="@_catNodes" CategoriaActiva="@_categoriaActiva" Version="@_navVersion" />
+        }
+    </header>
+    <CategoryDrawer Open="@_menuOpen" OpenChanged="OnDrawerOpenChanged" Categorias="@_catNodes" Cargando="@_catsLoading" Error="@_catsError" OnRetry="RetryCats" />
+    <main id="main-content" tabindex="-1" @ref="_main" class="store-main">
+        <MudMainContent>
+            <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-0">
+                @Body
+            </MudContainer>
+        </MudMainContent>
+    </main>
+    <StoreFooter Nombre="@_name" LogoUrl="@_logo" Descripcion="@_profile?.DescripcionCorta" Contacto="@_profile?.Contacto" Redes="@(_profile?.Redes ?? [])" Horarios="@(_profile?.Horarios ?? [])" BackofficeUrl="@_backofficeUrl" Anio="@DateTime.Now.Year" MostrarAccesoAdministracion="@_mostrarAccesoAdministracion" />
+    <WhatsAppFab Url="@_whatsappUrl" />
+</MudLayout>
+
+@code {
+    // S61.1 tema por tenant (intacto); S62.3 shell alimentado por StorefrontState.
+    MudTheme _theme = StoreThemeFactory.Create(null);
+    string _themeColor = StoreThemeFactory.AccessiblePrimary(null);
+    string? _favicon;
+    PublicStorefrontDto? _profile;
+    string _name = "INVENTA";
+    string? _logo;
+    string _query = "";
+    string? _backofficeUrl;
+    string? _whatsappUrl;
+    bool _mostrarAccesoAdministracion = false;
+    CancellationTokenSource _cts = new();
+
+    // S62.3 menú de categorías: carga temprana al iniciar (S71: alimenta mega-menú
+    // + drawer + home), una sola petición por sesión; errores no rompen el layout.
+    bool _menuOpen;
+    bool _catsRequested;
+    bool _catsLoading;
+    bool _catsError;
+    int _navVersion;
+    long? _categoriaActiva;
+    IReadOnlyList<CategoryNode> _catNodes = [];
+    CancellationTokenSource? _catsCts;
+    bool _suppressFocusOnce;
+    StoreHeader? _header;
+    ElementReference _main;
+
+    // S68 sesion
+    bool _isAuthenticated;
+    string _userDisplayName = "";
+    string _loginHref = "/login";
+    bool _sessionReady;
+    bool _isOnLoginPage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _query = QueryFromUrl(Nav.Uri);
+        _categoriaActiva = CatFromUrl(Nav.Uri);
+        _backofficeUrl = string.IsNullOrWhiteSpace(Config["BackofficeUrl"]) ? null : Config["BackofficeUrl"];
+        _mostrarAccesoAdministracion = Config.GetValue<bool>("Store:MostrarAccesoAdministracion", false);
+        Nav.LocationChanged += OnLocationChanged;
+
+        // S68 suscripción a cambios de auth
+        if (AuthStateProvider is StoreAuthenticationStateProvider storeAuth)
+        {
+            storeAuth.AuthenticationStateChanged += OnAuthStateChanged;
+            // estado inicial
+            var initial = await storeAuth.GetAuthenticationStateAsync();
+            ApplyAuthState(initial);
+        }
+
+        try
+        {
+            _profile = await SfState.GetAsync(_cts.Token);
+            _name = SfState.DisplayName(_profile);
+            _logo = SfState.ResolveAssetUrl(_profile?.LogoUrl);
+            _theme = StoreThemeFactory.Create(SfState.Branding.ColorAcento);
+            _themeColor = StoreThemeFactory.AccessiblePrimary(SfState.Branding.ColorAcento);
+            _favicon = SfState.ResolveAssetUrl(SfState.Branding.FaviconUrl);
+            // S62.3 mensaje por defecto del layout (el mensaje por producto es de S64).
+            _whatsappUrl = StoreLinks.WhatsAppUrl(_profile?.Contacto?.WhatsApp, "Hola, vi su catálogo y quisiera hacer una consulta.");
+        }
+        catch { }
+        // S71 carga temprana de categorías (una sola vez; no bloquea el render).
+        _ = LoadCatsAsync();
+    }
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            var state = await task;
+            ApplyAuthState(state);
+        });
+    }
+
+    private void ApplyAuthState(AuthenticationState state)
+    {
+        _isAuthenticated = state.User.Identity?.IsAuthenticated ?? false;
+        _userDisplayName = _isAuthenticated ? state.User.GetName() ?? "Mi cuenta" : "";
+        _loginHref = $"/login?returnUrl={Uri.EscapeDataString(Nav.Uri)}";
+        _sessionReady = true;
+        StateHasChanged();
+    }
+
+    Task SkipToContent() => _main.FocusAsync().AsTask();
+
+    void OnMenuClick()
+    {
+        _menuOpen = true;
+        if (!_catsRequested) _ = LoadCatsAsync();
+    }
+
+    async Task LoadCatsAsync()
+    {
+        _catsRequested = true; _catsLoading = true; _catsError = false;
+        _catsCts?.Cancel(); _catsCts = new CancellationTokenSource();
+        try
+        {
+            var cats = await CatApi.GetCategoriesAsync(_catsCts.Token);
+            _catNodes = CategoryTree.Build(cats);
+            // U12: compartir categorías con StorefrontState para que Catalog no las pida de nuevo
+            SfState.SetCategorias(_catNodes, cats ?? []);
+        }
+        catch (OperationCanceledException) { return; }
+        catch { _catsError = true; }
+        finally { _catsLoading = false; StateHasChanged(); }
+    }
+
+    Task RetryCats()
+    {
+        _catsRequested = false;
+        return LoadCatsAsync();
+    }
+
+    // S62.3 al cerrar se devuelve el foco al botón, salvo cierre por navegación.
+    async Task OnDrawerOpenChanged(bool v)
+    {
+        _menuOpen = v;
+        if (!v && !_suppressFocusOnce && _header is not null)
+            await _header.FocusMenuButtonAsync();
+        _suppressFocusOnce = false;
+    }
+
+    void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _query = QueryFromUrl(e.Location);
+        _categoriaActiva = CatFromUrl(e.Location);
+        _isOnLoginPage = e.Location.Contains("/login", StringComparison.OrdinalIgnoreCase);
+        _navVersion++;
+        if (_menuOpen) { _suppressFocusOnce = true; _menuOpen = false; }
+        StateHasChanged();
+    }
+
+    static string QueryFromUrl(string url)
+    {
+        var qi = url.IndexOf('?', StringComparison.Ordinal);
+        if (qi < 0) return "";
+        foreach (var part in url[(qi + 1)..].Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = part.Split('=', 2);
+            if (kv.Length == 2 && kv[0] == "q") return Uri.UnescapeDataString(kv[1].Replace('+', ' '));
+        }
+        return "";
+    }
+
+    // S71 categoría activa del mega-menú (?cat=) para resaltar la raíz vigente.
+    static long? CatFromUrl(string url)
+    {
+        var qi = url.IndexOf('?', StringComparison.Ordinal);
+        if (qi < 0) return null;
+        foreach (var part in url[(qi + 1)..].Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = part.Split('=', 2);
+            if (kv.Length == 2 && kv[0] == "cat" && long.TryParse(kv[1], out var id)) return id;
+        }
+        return null;
+    }
+
+    async Task OnLogout()
+    {
+        await StoreAuth.LogoutAsync();
+        // notificar cambio para que header se actualice
+        if (AuthStateProvider is StoreAuthenticationStateProvider storeAuth)
+        {
+            storeAuth.NotifyUserChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+        if (AuthStateProvider is StoreAuthenticationStateProvider storeAuth)
+        {
+            storeAuth.AuthenticationStateChanged -= OnAuthStateChanged;
+        }
+        _cts.Cancel();
+        _catsCts?.Cancel();
+    }
+}

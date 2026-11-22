@@ -1,0 +1,104 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Lib\**" />
+    <Compile Remove="UserControls\**" />
+    <EmbeddedResource Remove="Lib\**" />
+    <EmbeddedResource Remove="UserControls\**" />
+    <None Remove="Lib\**" />
+    <None Remove="UserControls\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Forms\Producto.cs" />
+    <Compile Remove="Forms\Producto.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_AtributoDef.cs" />
+    <Compile Remove="Forms\Productos\frm_AtributoDef.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_AtributoValor.cs" />
+    <Compile Remove="Forms\Productos\frm_AtributoValor.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_CodigoBarra.cs" />
+    <Compile Remove="Forms\Productos\frm_CodigoBarra.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_ConfigAtributos.cs" />
+    <Compile Remove="Forms\Productos\frm_ConfigAtributos.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_Precio.cs" />
+    <Compile Remove="Forms\Productos\frm_Precio.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_PrecioCompra.cs" />
+    <Compile Remove="Forms\Productos\frm_PrecioCompra.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_Presentacion.cs" />
+    <Compile Remove="Forms\Productos\frm_Presentacion.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_SeleccionarValoresAtributo.cs" />
+    <Compile Remove="Forms\Productos\frm_SeleccionarValoresAtributo.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_Stock.cs" />
+    <Compile Remove="Forms\Productos\frm_Stock.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_StockAjuste.cs" />
+    <Compile Remove="Forms\Productos\frm_StockAjuste.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_StockTransferir.cs" />
+    <Compile Remove="Forms\Productos\frm_StockTransferir.Designer.cs" />
+    <Compile Remove="Forms\Productos\frm_Variante.cs" />
+    <Compile Remove="Forms\Productos\frm_Variante.Designer.cs" />
+    <Compile Remove="Infrastructure\IFormFactory.cs" />
+    <Compile Remove="UC\Producto\IProductoTab.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Remove="Forms\Producto.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_AtributoDef.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_AtributoValor.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_CodigoBarra.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_ConfigAtributos.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_Precio.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_PrecioCompra.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_Presentacion.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_SeleccionarValoresAtributo.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_Stock.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_StockAjuste.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_StockTransferir.resx" />
+    <EmbeddedResource Remove="Forms\Productos\frm_Variante.resx" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="EPPlus" />
+    <PackageReference Include="FontAwesome.Sharp" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="ZXing.Net" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Inventa.Application\Inventa.Application.csproj" />
+    <ProjectReference Include="..\Inventa.Data\Inventa.Data.csproj" />
+    <ProjectReference Include="..\Inventa.Domain\Inventa.Domain.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\CBP.Infraestructure\CBP.MultiTenant\CBP.MultiTenant.csproj" />
+    <ProjectReference Include="D:\CODIGOS\CBP\UI\WinUI\CBP.WinFrms\CBP.WinFrms.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="Properties\Resources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Update="Properties\Resources.resx">
+      <Generator>PublicResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

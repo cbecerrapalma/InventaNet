@@ -1,0 +1,34 @@
+@using Inventa.Web.Models.Bodegas
+@inject Inventa.Web.Services.Bodegas.BodegasApiService Svc
+@inject ISnackbar Snackbar
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">@(Model is null ? "Nueva bodega para el tenant actual." : $"Editando a {Model.Nombre}")</MudText>
+            <MudTextField @bind-Value="_model.Codigo" Label="Código" Variant="Variant.Outlined" Required="true" MaxLength="20" Immediate="true" aria-label="Código bodega" />
+            <MudTextField @bind-Value="_model.Nombre" Label="Nombre" Variant="Variant.Outlined" Required="true" MaxLength="100" Immediate="true" aria-label="Nombre bodega" />
+            @if (_error is not null){<MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mt-2">@_error.Detail<br/><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText></MudAlert>}
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="_submitting" aria-label="Guardar bodega">@(_submitting?"Guardando...":"Guardar")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code{
+    [CascadingParameter] IMudDialogInstance MudDialog{get;set;}=default!;
+    [Parameter] public BodegaDto? Model{get;set;}
+    private CreateBodegaDto _model=new(); private bool _submitting; private Inventa.Web.Models.Api.ApiError? _error;
+    protected override void OnInitialized(){ if(Model is not null){ _model.Codigo=Model.Codigo; _model.Nombre=Model.Nombre; } }
+    private void Cancel()=> MudDialog.Cancel();
+    private async Task Save(){
+        if(string.IsNullOrWhiteSpace(_model.Codigo)||string.IsNullOrWhiteSpace(_model.Nombre)){Snackbar.Add("Complete código y nombre.",Severity.Warning);return;}
+        _submitting=true; _error=null; StateHasChanged();
+        try{
+            if(Model is null){ await Svc.CreateAsync(_model,CancellationToken.None); Snackbar.Add("Bodega creada.",Severity.Success); }
+            else { await Svc.UpdateAsync(Model.IdBodega,_model,CancellationToken.None); Snackbar.Add("Bodega actualizada.",Severity.Success); }
+            MudDialog.Close(DialogResult.Ok(true));
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); Snackbar.Add($"No fue posible guardar. Código de seguimiento: {_error.CorrelationId}",Severity.Error); }
+        finally{ _submitting=false; StateHasChanged(); }
+    }
+}

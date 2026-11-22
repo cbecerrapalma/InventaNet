@@ -1,0 +1,95 @@
+@using Inventa.Web.Models.Bodegas
+@using Inventa.Web.Models.Inventario
+@using Inventa.Web.Models.Productos
+@inject Inventa.Web.Services.Bodegas.BodegasApiService BodegaSvc
+@inject Inventa.Web.Services.Inventario.InventarioApiService InvSvc
+@inject ISnackbar Snackbar
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">Mueve productos de una bodega a otra. El stock disponible se valida al transferir.</MudText>
+            @if (_loadingBodegas){<LoadingState Message="Cargando bodegas..." />}
+            else
+            {
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="6">
+                        <MudSelect T="int" Value="_orig" ValueChanged="OnOrigChanged" Label="Bodega origen" Variant="Variant.Outlined" Dense="true" Required="true" aria-label="Bodega origen">
+                            @foreach(var b in _bodegas){<MudSelectItem Value="@b.IdBodega">@b.Codigo - @b.Nombre</MudSelectItem>}
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudSelect T="int" Value="_dest" ValueChanged="OnDestChanged" Label="Bodega destino" Variant="Variant.Outlined" Dense="true" Required="true" aria-label="Bodega destino">
+                            @foreach(var b in _bodegas){<MudSelectItem Value="@b.IdBodega">@b.Codigo - @b.Nombre</MudSelectItem>}
+                        </MudSelect>
+                    </MudItem>
+                </MudGrid>
+                <MudDivider />
+                <MudText Typo="Typo.subtitle2">Productos (@FormatoCl.Miles(_lineas.Count))</MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="6"><BuscadorPresentacion Value="_pres" ValueChanged="@((PresentacionBusquedaDto? v) => _pres = v)" Uso="inventario" IdBodega="_orig" Required="false" /></MudItem>
+                    <MudItem xs="8" md="3"><MudNumericField Culture="@FormatoCl.Cultura" T="decimal" @bind-Value="_cant" Label="Cantidad" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0.0001m" Format="#,0.####" aria-label="Cantidad" data-testid="inv-cantidad" /></MudItem>
+                    <MudItem xs="4" md="3" Class="d-flex align-center"><MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" OnClick="AddItem" aria-label="Agregar producto" data-testid="inv-agregar">Agregar</MudButton></MudItem>
+                </MudGrid>
+                @if (_lineas.Count==0){<MudAlert Severity="Severity.Info" Class="mt-2">Agregue al menos un producto.</MudAlert>}
+                else
+                {
+                    <MudTable Items="_lineas" Dense="true" Hover="true" Elevation="0" Bordered="true" data-testid="inv-items">
+                        <HeaderContent><MudTh>Producto</MudTh><MudTh>Cantidad</MudTh><MudTh></MudTh></HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Producto">@context.Pres.ProdNombre · @context.Pres.VarNombre<br/><MudText Typo="Typo.caption" Color="Color.Secondary">@context.Pres.VarCodigo</MudText></MudTd>
+                            <MudTd DataLabel="Cantidad">@FormatoCl.Cantidad(context.Cantidad)</MudTd>
+                            <MudTd><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(()=>RemoveItem(context))" aria-label="Quitar producto" /></MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            }
+            @if (_error is not null){<MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_error.Detail<br/><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText></MudAlert>}
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_submitting">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_submitting || _lineas.Count==0" aria-label="Transferir">@(_submitting?"Transfiriendo...":"Transferir")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code{
+    [CascadingParameter] IMudDialogInstance MudDialog{get;set;}=default!;
+    private List<BodegaDto> _bodegas=[]; private bool _loadingBodegas=true; private bool _submitting; private Inventa.Web.Models.Api.ApiError? _error;
+    private int _orig; private int _dest;
+    private sealed class LineaInv{ public PresentacionBusquedaDto Pres{get;set;}=default!; public decimal Cantidad{get;set;} }
+    private PresentacionBusquedaDto? _pres; private decimal _cant = 1;
+    private List<LineaInv> _lineas=[];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try{ _bodegas = await BodegaSvc.ListAsync(CancellationToken.None) ?? []; }catch{}
+        _loadingBodegas=false;
+        if(_bodegas.Count>=2){ _orig=_bodegas[0].IdBodega; _dest=_bodegas[1].IdBodega; }
+        else if(_bodegas.Count==1){ _orig=_bodegas[0].IdBodega; }
+    }
+    private void OnOrigChanged(int v){ _orig=v; }
+    private void OnDestChanged(int v){ _dest=v; }
+    private void AddItem(){
+        var p=_pres;
+        if(p is null){Snackbar.Add("Elija un producto.",Severity.Warning);return;}
+        if(_cant<=0){Snackbar.Add("La cantidad debe ser mayor que 0.",Severity.Warning);return;}
+        var existente=_lineas.FirstOrDefault(l=>l.Pres.IdPresProd==p.IdPresProd);
+        if(existente is null) _lineas.Add(new LineaInv{ Pres=p, Cantidad=_cant });
+        else existente.Cantidad+=_cant;
+        _pres=null; _cant=1; StateHasChanged();
+    }
+    private void RemoveItem(LineaInv l){ _lineas.Remove(l); }
+    private void Cancel()=> MudDialog.Cancel();
+    private async Task Submit(){
+        if(_orig==0||_dest==0){Snackbar.Add("Seleccione origen y destino.",Severity.Warning);return;}
+        if(_orig==_dest){Snackbar.Add("Origen y destino deben ser distintos.",Severity.Warning);return;}
+        if(_lineas.Count==0){Snackbar.Add("Agregue al menos un producto.",Severity.Warning);return;}
+        _submitting=true; _error=null; StateHasChanged();
+        try{
+            var dto=new TransferirDto{ IdBodegaOrig=_orig, IdBodegaDest=_dest, Items=_lineas.Select(l=> new TransferenciaItemSp{ IdPresProd=l.Pres.IdPresProd, IdLote=null, Cantidad=l.Cantidad }).ToList() };
+            await InvSvc.TransferirAsync(dto, CancellationToken.None);
+            Snackbar.Add("Transferencia realizada.",Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }catch(Inventa.Web.Models.Api.ApiException ex){ _error=ex.ToApiError(); Snackbar.Add($"No fue posible transferir. Código de seguimiento: {_error.CorrelationId}",Severity.Error); }
+        finally{ _submitting=false; StateHasChanged(); }
+    }
+}

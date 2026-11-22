@@ -1,0 +1,104 @@
+@page "/proveedores/{Id}"
+@attribute [Authorize]
+@inject Inventa.Web.Services.Proveedores.ProveedoresApiService Svc
+@inject Inventa.Web.Services.Auth.PermissionService PermsService
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@implements IDisposable
+
+<PageHeader Title="Detalle Proveedor" Description="Ficha del proveedor." Icon="@Icons.Material.Filled.LocalShipping" />
+
+@if (!_checked) { <LoadingState /> }
+else if (!_allowed) { <Forbidden /> }
+else if (_loading) { <LoadingState Message="Cargando proveedor..." /> }
+else if (_error is not null)
+{
+    <ErrorState Title="@_error.Title" Detail="@_error.Detail" CorrelationId="@_error.CorrelationId" OnRetry="Reload" />
+}
+else if (_prov is null)
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-3">Proveedor no encontrado.</MudAlert>
+    <MudButton Color="Color.Primary" Href="/proveedores" StartIcon="@Icons.Material.Filled.ArrowBack">Volver al listado</MudButton>
+}
+else
+{
+    <MudPaper Class="pa-4 mb-3" Elevation="0" Style="border:1px solid var(--mud-palette-lines-default)">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+            <MudText Typo="Typo.h6">@_prov.RazonSocial</MudText>
+            @if (_canEdit)
+            {
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Edit" OnClick="OpenEdit" aria-label="Editar proveedor">Editar</MudButton>
+            }
+        </MudStack>
+        <MudGrid Spacing="3" data-testid="ficha-proveedor">
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Código</MudText><MudText>@_prov.Codigo</MudText></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Estado</MudText><MudChip T="string" Size="Size.Small" Color="@(_prov.Activo?Color.Success:Color.Default)">@(_prov.Activo?"Activo":"Inactivo")</MudChip></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Nombre comercial</MudText><MudText>@(string.IsNullOrWhiteSpace(_prov.NombreComercial)?"—":_prov.NombreComercial)</MudText></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">RUT</MudText><MudText>@(string.IsNullOrWhiteSpace(_prov.RUT)?"—":_prov.RUT)</MudText></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Contacto</MudText><MudText>@(string.IsNullOrWhiteSpace(_prov.Contacto)?"—":_prov.Contacto)</MudText></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Teléfono</MudText><MudText>@(string.IsNullOrWhiteSpace(_prov.Telefono)?"—":_prov.Telefono)</MudText></MudItem>
+            <MudItem xs="12" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Email</MudText><MudText Style="overflow-wrap:anywhere">@(string.IsNullOrWhiteSpace(_prov.Email)?"—":_prov.Email)</MudText></MudItem>
+            <MudItem xs="6" md="4"><MudText Typo="Typo.caption" Color="Color.Secondary">Creación</MudText><MudText>@FormatoCl.FechaHora(_prov.FecCrea)</MudText></MudItem>
+            <MudItem xs="12"><MudText Typo="Typo.caption" Color="Color.Secondary">Dirección</MudText><MudText>@(string.IsNullOrWhiteSpace(_prov.Direccion)?"—":_prov.Direccion)</MudText></MudItem>
+        </MudGrid>
+        <MudAlert Severity="Severity.Info" Class="mt-3" Variant="Variant.Outlined">Las órdenes de compra a este proveedor se gestionan en <b>Compras</b>.</MudAlert>
+    </MudPaper>
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" Href="/proveedores">Volver</MudButton>
+}
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    [CascadingParameter] public Inventa.Web.Shared.MigaContexto? Miga { get; set; }
+    private bool _checked; private bool _allowed; private bool _canEdit;
+    private bool _loading = true;
+    private Inventa.Web.Models.Api.ApiError? _error;
+    private Inventa.Web.Models.Proveedores.ProveedorDto? _prov;
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allowed = await PermsService.HasPermissionAsync("INVENTA_PROVEEDORES_DETALLE_VER");
+        _canEdit = await PermsService.HasPermissionAsync("INVENTA_PROVEEDORES_DETALLE_EDITAR");
+        _checked = true;
+        if (!_allowed) return;
+        TenantCtx.OnTenantChanged += OnTenantChanged;
+        await LoadAsync();
+    }
+    private void OnTenantChanged(int? localId, int? passPlatId){ _ = OnTenantChangedAsync(localId); }
+    private async Task OnTenantChangedAsync(int? localId)
+    {
+        _prov = null;
+        await InvokeAsync(async ()=>{ _loading=true; StateHasChanged(); await LoadAsync(); StateHasChanged(); });
+    }
+    private async Task LoadAsync()
+    {
+        if (!int.TryParse(Id, out var id)){ _prov=null; _loading=false; return; }
+        _cts?.Cancel(); _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        _loading=true; _error=null; StateHasChanged();
+        try
+        {
+            _prov = await Svc.GetByIdAsync(id, ct);
+            Miga?.Definir($"/proveedores/{id}", _prov?.RazonSocial);
+        }
+        catch(Inventa.Web.Models.Api.ApiException ex)
+        {
+            if(ex.StatusCode==404) _prov=null;
+            else { _error=ex.ToApiError(); if(ex.StatusCode==401) Snackbar.Add("Sesión expirada", Severity.Warning); }
+        }
+        catch(OperationCanceledException){}
+        catch(Exception ex){ _error=new(){StatusCode=0, Title="Error", Detail=ex.Message}; }
+        finally{ _loading=false; StateHasChanged(); }
+    }
+    private async Task Reload()=> await LoadAsync();
+    private async Task OpenEdit()
+    {
+        if (_prov is null) return;
+        var pars = new DialogParameters{ ["Model"] = _prov };
+        var dlg = await Dialogs.ShowAsync<Inventa.Web.Shared.Supplier.ProveedorFormDialog>("Editar proveedor", pars);
+        var r = await dlg.Result;
+        if (r is not null && !r.Canceled) await LoadAsync();
+    }
+    public void Dispose(){ TenantCtx.OnTenantChanged-=OnTenantChanged; _cts?.Cancel(); _cts?.Dispose(); }
+}

@@ -1,0 +1,363 @@
+@page "/"
+@attribute [Authorize]
+@* AccesoPagina — este atributo NO controla la seguridad: solo informa al catálogo de acceso (menú/PassPlat)
+   lo que el generador no puede deducir de esta página. Qué hace y cuándo usarlo: Docs/Architecture/Acceso-Dinamico.md *@
+@attribute [CBP.Acceso.AccesoPagina("El tablero solo exige sesión; PassPlat muestra Inicio en el menú a quien tiene INICIO_VER", Permiso = "INVENTA_INICIO_VER")]
+@inject Inventa.Web.Services.Auth.PermissionService Perms
+@inject Inventa.Web.Services.Tenant.TenantContextService TenantCtx
+@inject Inventa.Web.Services.Dashboard.DashboardApiService DashSvc
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@inject Inventa.Web.Services.Tenant.TenantService TenantService
+@implements IDisposable
+
+<PageHeader Title="Dashboard" Description="Resumen general del negocio" Icon="@Icons.Material.Filled.Dashboard">
+    <Actions>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudChip T="string" Color="Color.Primary" Size="Size.Small" Icon="@Icons.Material.Filled.Group">@(_tenantNombre ?? "—")</MudChip>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@(_lastUpdate is null ? "Sin actualización" : $"Actualizado {FormatoCl.Hora(_lastUpdate)}")</MudText>
+            <MudTooltip Text="Actualizar dashboard"><MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Primary" Disabled="_refreshing" OnClick="Refresh" aria-label="Actualizar dashboard" /></MudTooltip>
+        </MudStack>
+    </Actions>
+</PageHeader>
+
+
+
+@if (!_permsLoaded)
+{
+    <LoadingState Message="Cargando permisos..." />
+}
+else if (_perms.Count == 0)
+{
+    <EmptyState Icon="@Icons.Material.Filled.Lock" Title="Sin permisos para el resumen" Description="Tu usuario no tiene permisos para ver este resumen. Pide acceso a un administrador." />
+}
+else
+{
+    @if (_loading)
+    {
+        <MudGrid Spacing="3" Class="mb-4">
+            <MudItem xs="12" sm="6" md="3"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" /></MudItem>
+            <MudItem xs="12" sm="6" md="3"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" /></MudItem>
+            <MudItem xs="12" sm="6" md="3"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" /></MudItem>
+            <MudItem xs="12" sm="6" md="3"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" /></MudItem>
+        </MudGrid>
+        <MudGrid Spacing="3" Class="mb-4">
+            <MudItem xs="12" md="4"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="180px" /></MudItem>
+            <MudItem xs="12" md="4"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="180px" /></MudItem>
+            <MudItem xs="12" md="4"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="180px" /></MudItem>
+        </MudGrid>
+    }
+    else if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">Dashboard temporalmente no disponible<br/><MudText Typo="Typo.caption">Código de seguimiento: @_error.CorrelationId</MudText><MudButton Size="Size.Small" OnClick="RetryDashboard" Class="mt-2">Reintentar</MudButton></MudAlert>
+    }
+    else
+    {
+        @* KPI ROW 4 cols *@
+        <MudGrid Spacing="3" Class="mb-4">
+            @if (_hasProd)
+            {
+                <MudItem xs="12" sm="6" md="3">
+                    <MudPaper Class="pa-4 inv-surface" Elevation="0" aria-label="KPI productos">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween"><MudText Typo="Typo.caption" Color="Color.Secondary">PRODUCTOS</MudText><MudIcon Icon="@Icons.Material.Filled.Inventory" Size="Size.Small" /></MudStack>
+                        @if (_summary?.Productos is null){<MudText Typo="Typo.h5">0</MudText><MudText Typo="Typo.caption">Sin datos</MudText>}
+                        else{<MudText Typo="Typo.h4">@FormatoCl.Miles(_summary.Productos.Total)</MudText><MudText Typo="Typo.caption" Class="d-block">@FormatoCl.Miles(_summary.Productos.Activos) activos · @FormatoCl.Miles(_summary.Productos.Inactivos) inactivos</MudText>}
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Href="/productos" aria-label="Ver productos" Class="mt-2">Ver productos</MudButton>
+                    </MudPaper>
+                </MudItem>
+            }
+            @if (_hasCli)
+            {
+                <MudItem xs="12" sm="6" md="3">
+                    <MudPaper Class="pa-4 inv-surface" Elevation="0" aria-label="KPI clientes">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween"><MudText Typo="Typo.caption" Color="Color.Secondary">CLIENTES</MudText><MudIcon Icon="@Icons.Material.Filled.People" Size="Size.Small" /></MudStack>
+                        @if (_summary?.Clientes is null){<MudText Typo="Typo.h5">0</MudText><MudText Typo="Typo.caption">Sin clientes</MudText>}
+                        else{<MudText Typo="Typo.h4">@FormatoCl.Miles(_summary.Clientes.Total)</MudText><MudText Typo="Typo.caption" Class="d-block">@FormatoCl.Miles(_summary.Clientes.Activos) activos · @FormatoCl.Miles(_summary.Clientes.Inactivos) inactivos</MudText>}
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Href="/clientes" aria-label="Ver clientes" Class="mt-2">Ver clientes</MudButton>
+                    </MudPaper>
+                </MudItem>
+            }
+            @if (_hasProv)
+            {
+                <MudItem xs="12" sm="6" md="3">
+                    <MudPaper Class="pa-4 inv-surface" Elevation="0" aria-label="KPI proveedores">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween"><MudText Typo="Typo.caption" Color="Color.Secondary">PROVEEDORES</MudText><MudIcon Icon="@Icons.Material.Filled.LocalShipping" Size="Size.Small" /></MudStack>
+                        @if (_summary?.Proveedores is null){<MudText Typo="Typo.h5">0</MudText><MudText Typo="Typo.caption">Sin proveedores</MudText>}
+                        else{<MudText Typo="Typo.h4">@FormatoCl.Miles(_summary.Proveedores.Total)</MudText><MudText Typo="Typo.caption" Class="d-block">@FormatoCl.Miles(_summary.Proveedores.Activos) activos · @FormatoCl.Miles(_summary.Proveedores.Inactivos) inactivos</MudText>}
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Href="/proveedores" aria-label="Ver proveedores" Class="mt-2">Ver proveedores</MudButton>
+                    </MudPaper>
+                </MudItem>
+            }
+            @if (_hasBod)
+            {
+                <MudItem xs="12" sm="6" md="3">
+                    <MudPaper Class="pa-4 inv-surface" Elevation="0" aria-label="KPI bodegas">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween"><MudText Typo="Typo.caption" Color="Color.Secondary">BODEGAS</MudText><MudIcon Icon="@Icons.Material.Filled.Warehouse" Size="Size.Small" /></MudStack>
+                        @if (_summary?.Bodegas is null){<MudText Typo="Typo.h5">0</MudText><MudText Typo="Typo.caption">Sin bodegas</MudText>}
+                        else{<MudText Typo="Typo.h4">@FormatoCl.Miles(_summary.Bodegas.Total)</MudText><MudText Typo="Typo.caption" Class="d-block">@FormatoCl.Miles(_summary.Bodegas.Activas) activas · @FormatoCl.Miles(_summary.Bodegas.Inactivas) inactivas</MudText>}
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Href="/bodegas" aria-label="Ver bodegas" Class="mt-2">Ver bodegas</MudButton>
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+
+        @* SECOND ROW: Ventas / Compras / Stock *@
+        <MudGrid Spacing="3" Class="mb-4">
+            @if (_hasVenta)
+            {
+                <MudItem xs="12" md="4">
+                    <MudPaper Class="pa-4 inv-surface inv-kpi--tall" Elevation="0" aria-label="KPI ventas">
+                        <MudText Typo="Typo.subtitle2">Ventas</MudText>
+                        <MudDivider Class="my-2"/>
+                        @if (_summary?.Ventas is null){<EmptyState Icon="@Icons.Material.Filled.PointOfSale" Title="Sin ventas registradas" Description="No hay ventas para este tenant." />}
+                        else
+                        {
+                            <MudText Typo="Typo.h5">@FormatoCl.Miles(_summary.Ventas.Registros) <MudText Typo="Typo.caption" Inline="true">registros totales</MudText></MudText>
+                            <MudText Typo="Typo.caption">@FormatoCl.Miles(_summary.Ventas.Completadas) completadas · @FormatoCl.Miles(_summary.Ventas.Anuladas) anuladas</MudText>
+                            <MudText Typo="Typo.body2" Class="mt-2">Total: <b>@FormatoCl.Moneda(_summary.Ventas.Total)</b></MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block">Subtotal @FormatoCl.Moneda(_summary.Ventas.SubTotal) · Descuento @FormatoCl.Moneda(_summary.Ventas.Descuento) · Impuesto @FormatoCl.Moneda(_summary.Ventas.Impuesto)</MudText>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Href="/ventas" aria-label="Ver ventas" Class="mt-2">Ver ventas</MudButton>
+                        }
+                    </MudPaper>
+                </MudItem>
+            }
+            @if (_hasOC)
+            {
+                <MudItem xs="12" md="4">
+                    <MudPaper Class="pa-4 inv-surface inv-kpi--tall" Elevation="0" aria-label="KPI compras">
+                        <MudText Typo="Typo.subtitle2">Compras</MudText>
+                        <MudDivider Class="my-2"/>
+                        @if (_summary?.Compras is null){<EmptyState Icon="@Icons.Material.Filled.ReceiptLong" Title="Sin órdenes" Description="No hay órdenes para este tenant." />}
+                        else
+                        {
+                            <MudText Typo="Typo.h5">@FormatoCl.Miles(_summary.Compras.Registros) <MudText Typo="Typo.caption" Inline="true">órdenes totales</MudText></MudText>
+                            <MudText Typo="Typo.caption">@FormatoCl.Miles(_summary.Compras.Pendientes) pendientes · @FormatoCl.Miles(_summary.Compras.Recibidas) recibidas · @FormatoCl.Miles(_summary.Compras.Canceladas) canceladas</MudText>
+                            <MudText Typo="Typo.body2" Class="mt-2">Monto: <b>@FormatoCl.Moneda(_summary.Compras.Total)</b></MudText>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Href="/compras/ordenes" aria-label="Ver compras" Class="mt-2">Ver compras</MudButton>
+                        }
+                    </MudPaper>
+                </MudItem>
+            }
+            @if (_hasStock)
+            {
+                <MudItem xs="12" md="4">
+                    <MudPaper Class="pa-4 inv-surface inv-kpi--tall" Elevation="0" aria-label="KPI stock">
+                        <MudText Typo="Typo.subtitle2">Stock</MudText>
+                        <MudDivider Class="my-2"/>
+                        @if (_summary?.Stock is null){<EmptyState Icon="@Icons.Material.Filled.Assessment" Title="Sin stock" Description="No hay registros de stock." />}
+                        else
+                        {
+                            <MudText Typo="Typo.h5">@FormatoCl.Cantidad(_summary.Stock.CantidadActual) <MudText Typo="Typo.caption" Inline="true">unidades en stock</MudText></MudText>
+                            <MudText Typo="Typo.caption" Class="d-block">@FormatoCl.Miles(_summary.Stock.Registros) registros · @FormatoCl.Miles(_summary.Stock.Agotados) sin unidades</MudText>
+                            <MudDivider Class="my-2"/>
+                            @if (_summary?.Lotes is not null){<MudText Typo="Typo.caption" Class="d-block">Lotes @FormatoCl.Miles(_summary.Lotes.Total) · vencidos @FormatoCl.Miles(_summary.Lotes.Vencidos) · por vencer en 30 días @FormatoCl.Miles(_summary.Lotes.Proximos30Dias)</MudText>}
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Href="/inventario/stock" aria-label="Ver stock" Class="mt-2">Ver stock</MudButton>
+                        }
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+
+        @* THIRD ROW: Alertas + Acciones rápidas *@
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="6">
+                <MudPaper Class="pa-4 inv-surface inv-panel--tall" Elevation="0">
+                    <MudText Typo="Typo.subtitle2">Atención</MudText>
+
+                    <MudDivider Class="my-2"/>
+                    @if (_hasStock && _summary?.Stock is not null && _summary.Stock.Agotados > 0)
+                    {
+                        <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Class="mb-2">Sin stock: @FormatoCl.Miles(_summary.Stock.Agotados) registros sin unidades</MudAlert>
+                    }
+                    @if (_hasStock && _summary?.Lotes is not null && _summary.Lotes.Vencidos > 0)
+                    {
+                        <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Class="mb-2">Lotes vencidos: @FormatoCl.Miles(_summary.Lotes.Vencidos)</MudAlert>
+                    }
+                    @if (_hasStock && _summary?.Lotes is not null && _summary.Lotes.Proximos30Dias > 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Variant="Variant.Outlined" Class="mb-2">Lotes por vencer en 30 días: @FormatoCl.Miles(_summary.Lotes.Proximos30Dias)</MudAlert>
+                    }
+                    @if (_hasOC && _summary?.Compras is not null && _summary.Compras.Pendientes > 0)
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true" Variant="Variant.Outlined" Class="mb-2">Órdenes de compra por recibir: @FormatoCl.Miles(_summary.Compras.Pendientes)</MudAlert>
+                    }
+                    @if (_hasVenta && _summary?.Ventas is not null && _summary.Ventas.Anuladas > 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Variant="Variant.Outlined" Class="mb-2">Ventas anuladas: @FormatoCl.Miles(_summary.Ventas.Anuladas)</MudAlert>
+                    }
+                    @if (!HasAnyAlert)
+                    {
+                        <MudAlert Severity="Severity.Success" Dense="true" Variant="Variant.Outlined">Sin alertas operativas.</MudAlert>
+                    }
+
+                    @if (_summary is not null){<MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2 d-block" data-testid="inicio-datos-al">Datos al @FormatoCl.FechaHora(_summary.GeneratedAtUtc.ToLocalTime())</MudText>}
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudPaper Class="pa-4 inv-surface inv-panel--tall" Elevation="0">
+                    <MudText Typo="Typo.subtitle2">Acciones rápidas</MudText>
+
+                    <MudDivider Class="my-2"/>
+                    <MudGrid Spacing="2">
+                        @if (_canProdCrear){<MudItem xs="6"><MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" Href="/productos" aria-label="Nuevo producto">Nuevo producto</MudButton></MudItem>}
+                        @if (_canCliCrear){<MudItem xs="6"><MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" Href="/clientes" aria-label="Nuevo cliente">Nuevo cliente</MudButton></MudItem>}
+                        @if (_canProvCrear){<MudItem xs="6"><MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" Href="/proveedores" aria-label="Nuevo proveedor">Nuevo proveedor</MudButton></MudItem>}
+                        @if (_canBodegaCrear){<MudItem xs="6"><MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" Href="/bodegas" aria-label="Nueva bodega">Nueva bodega</MudButton></MudItem>}
+                        @if (_canVentaCrear){<MudItem xs="6"><MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Href="/ventas" aria-label="Nueva venta">Nueva venta</MudButton></MudItem>}
+                        @if (_canOCCrear){<MudItem xs="6"><MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Href="/compras/ordenes" aria-label="Nueva orden de compra">Nueva orden</MudButton></MudItem>}
+                        @if (_canTransferir){<MudItem xs="6"><MudButton Variant="Variant.Outlined" Color="Color.Secondary" FullWidth="true" Href="/inventario/transferencias" aria-label="Transferir inventario">Transferir stock</MudButton></MudItem>}
+                        @if (_canAjustar){<MudItem xs="6"><MudButton Variant="Variant.Outlined" Color="Color.Secondary" FullWidth="true" Href="/inventario/ajustes" aria-label="Ajustar inventario">Ajustar stock</MudButton></MudItem>}
+                        @if (!_canProdCrear && !_canCliCrear && !_canProvCrear && !_canBodegaCrear && !_canVentaCrear && !_canOCCrear && !_canTransferir && !_canAjustar)
+                        {
+                            <MudItem xs="12"><MudText Typo="Typo.caption" Color="Color.Secondary">Sin acciones disponibles según sus permisos.</MudText></MudItem>
+                        }
+                    </MudGrid>
+
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    }
+}
+
+@code{
+
+    private int? _tenant;
+    private string? _tenantNombre;
+    private HashSet<string> _perms = new(StringComparer.OrdinalIgnoreCase);
+    private bool _permsLoaded;
+    private bool _refreshing;
+    private DateTime? _lastUpdate;
+    private CancellationTokenSource? _cts;
+    private bool _hasProd, _hasCli, _hasProv, _hasBod, _hasStock, _hasVenta, _hasOC;
+    private bool _canProdCrear, _canCliCrear, _canProvCrear, _canBodegaCrear, _canVentaCrear, _canOCCrear, _canTransferir, _canAjustar;
+    private bool _loading;
+    private Inventa.Web.Models.Api.ApiError? _error;
+    private Inventa.Web.Models.Dashboard.DashboardSummaryDto? _summary;
+    private bool HasAnyAlert => (_hasStock && _summary?.Stock is not null && _summary.Stock.Agotados > 0) ||
+                                (_hasStock && _summary?.Lotes is not null && (_summary.Lotes.Vencidos > 0 || _summary.Lotes.Proximos30Dias > 0)) ||
+                                (_hasOC && _summary?.Compras is not null && _summary.Compras.Pendientes > 0) ||
+                                (_hasVenta && _summary?.Ventas is not null && _summary.Ventas.Anuladas > 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        _tenant = await TenantCtx.GetCurrentTenantIdAsync();
+        if (_tenant.HasValue)
+        {
+            try
+            {
+                var tenants = await TenantService.GetMyTenantsAsync();
+                var tenant = tenants.FirstOrDefault(t => t.IdTenant == _tenant.Value);
+                _tenantNombre = tenant?.Nombre;
+            }
+            catch
+            {
+                // Ignorar errores al obtener nombre del tenant
+            }
+        }
+        TenantCtx.OnTenantChanged += OnTenantChanged;
+        await LoadDashboardAsync();
+    }
+
+    private void OnTenantChanged(int? localId, int? passPlatId)
+    {
+        _ = OnTenantChangedAsync(localId);
+    }
+
+    private async Task OnTenantChangedAsync(int? localId)
+    {
+        try
+        {
+            _cts?.Cancel();
+            _tenant = localId;
+            if (localId.HasValue)
+            {
+                try
+                {
+                    var tenants = await TenantService.GetMyTenantsAsync();
+                    var tenant = tenants.FirstOrDefault(t => t.IdTenant == localId.Value);
+                    _tenantNombre = tenant?.Nombre;
+                }
+                catch
+                {
+                    _tenantNombre = null;
+                }
+            }
+            else
+            {
+                _tenantNombre = null;
+            }
+            _summary = null;
+            _error = null;
+            _loading = false;
+            _permsLoaded = false;
+            StateHasChanged();
+            await LoadDashboardAsync();
+            StateHasChanged();
+        }
+        catch (Exception)
+        {
+            // Excepción en cambio de tenant: no romper la UI
+        }
+    }
+
+    private int _loadGen;
+    private async Task LoadDashboardAsync()
+    {
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        var gen = ++_loadGen;
+        _refreshing = true;
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+        try
+        {
+            _perms = new HashSet<string>(await Perms.GetPermissionsAsync(ct), StringComparer.OrdinalIgnoreCase);
+            _permsLoaded = true;
+            _hasProd = _perms.Contains("INVENTA_PRODUCTOS_PRINCIPAL_VER");
+            _hasCli = _perms.Contains("INVENTA_CLIENTES_PRINCIPAL_VER");
+            _hasProv = _perms.Contains("INVENTA_PROVEEDORES_PRINCIPAL_VER");
+            _hasBod = _perms.Contains("INVENTA_BODEGAS_PRINCIPAL_VER");
+            _hasStock = _perms.Contains("INVENTA_INVENTARIO_STOCK_VER");
+            _hasVenta = _perms.Contains("INVENTA_VENTAS_PRINCIPAL_VER");
+            _hasOC = _perms.Contains("INVENTA_COMPRAS_ORDENES_VER");
+            _canProdCrear = _perms.Contains("INVENTA_PRODUCTOS_PRINCIPAL_CREAR");
+            _canCliCrear = _perms.Contains("INVENTA_CLIENTES_PRINCIPAL_EDITAR");
+            _canProvCrear = _perms.Contains("INVENTA_PROVEEDORES_PRINCIPAL_EDITAR");
+            _canBodegaCrear = _perms.Contains("INVENTA_BODEGAS_PRINCIPAL_ADMIN");
+            _canVentaCrear = _perms.Contains("INVENTA_VENTAS_PRINCIPAL_CREAR");
+            _canOCCrear = _perms.Contains("INVENTA_COMPRAS_ORDENES_CREAR");
+            _canTransferir = _perms.Contains("INVENTA_INVENTARIO_TRANSFERENCIAS_TRANSFERIR");
+            _canAjustar = _perms.Contains("INVENTA_INVENTARIO_AJUSTES_AJUSTAR");
+            StateHasChanged();
+            if (ct.IsCancellationRequested || gen != _loadGen) return;
+            var summary = await DashSvc.GetSummaryAsync(ct);
+            if (ct.IsCancellationRequested || gen != _loadGen) return;
+            _summary = summary;
+            _lastUpdate = DateTime.Now;
+        }
+        catch (OperationCanceledException) { }
+        catch (Inventa.Web.Models.Api.ApiException ex) { if (gen == _loadGen) _error = ex.ToApiError(); }
+        catch (Exception ex) { if (gen == _loadGen) _error = new() { StatusCode = 0, Title = "Error", Detail = ex.Message }; }
+        finally { if (gen == _loadGen) { _loading = false; _refreshing = false; StateHasChanged(); } }
+    }
+
+    private async Task Refresh()
+    {
+        if (_refreshing) return;
+        _cts?.Cancel();
+        _error = null;
+        await LoadDashboardAsync();
+    }
+
+    private Task RetryDashboard() => LoadDashboardAsync();
+
+    public void Dispose()
+    {
+        TenantCtx.OnTenantChanged -= OnTenantChanged;
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+}

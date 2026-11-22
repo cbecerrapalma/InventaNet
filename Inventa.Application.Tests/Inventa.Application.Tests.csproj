@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Moq" />
+    <ProjectReference Include="..\Inventa.Application.Async\Inventa.Application.Async.csproj" />
+    <ProjectReference Include="..\Inventa.Data.Async\Inventa.Data.Async.csproj" />
+  </ItemGroup>
+
+</Project>
+
+

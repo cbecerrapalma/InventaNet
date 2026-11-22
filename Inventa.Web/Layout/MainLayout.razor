@@ -1,0 +1,136 @@
+@inherits LayoutComponentBase
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject MudBlazor.IBrowserViewportService ViewportService
+<MudThemeProvider Theme="@Inventa.Web.Theme.AppTheme.Theme" IsDarkMode="_isDarkMode" @ref="_themeProvider" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<a href="#main-content" class="inv-skip-link" data-testid="skip-link">Saltar al contenido</a>
+
+<MudLayout>
+    <MudAppBar Elevation="1" Dense="true" data-testid="backoffice-appbar">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@ToggleDrawer" aria-label="Abrir menú" data-testid="appbar-menu-toggle" />
+        <a href="/" class="inv-appbar-title" data-testid="appbar-title">
+            <MudText Typo="Typo.h6" Class="mb-0">InventaNet Backoffice</MudText>
+        </a>
+        <MudSpacer />
+        <AuthorizeView>
+            <Authorized>
+                <TenantSelector />
+                <UserMenu />
+            </Authorized>
+        </AuthorizeView>
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" Color="Color.Inherit" OnClick="@ToggleTheme" aria-label="Cambiar tema" Class="ml-2" data-testid="appbar-theme-toggle" />
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="1" Variant="DrawerVariant.Responsive" OpenMiniOnHover="false" data-testid="backoffice-drawer">
+        <NavMenu OnNavigate="CloseDrawerOnMobile" />
+    </MudDrawer>
+
+    <MudMainContent id="main-content" tabindex="-1" data-testid="backoffice-main">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+            <AppBreadcrumbs Contexto="_miga" />
+            <CascadingValue Value="_miga" IsFixed="true">@Body</CascadingValue>
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    // S92: etiqueta del último tramo de la miga definida por la página (p. ej. nombre del producto).
+    private readonly Inventa.Web.Shared.MigaContexto _miga = new();
+    private bool _drawerOpen = false;
+    private bool _isDarkMode;
+    private MudThemeProvider? _themeProvider;
+    private bool _isMobile = true;
+    private Guid _viewportSubscriptionId = Guid.NewGuid();
+
+    private void OnViewportChanged(MudBlazor.BrowserViewportEventArgs args)
+    {
+        var wasMobile = _isMobile;
+        _isMobile = args.Breakpoint < MudBlazor.Breakpoint.Md;
+
+        if (_isMobile && _drawerOpen && !wasMobile)
+        {
+            // De desktop a móvil: cerrar drawer
+            _drawerOpen = false;
+            InvokeAsync(StateHasChanged);
+        }
+        else if (!_isMobile && !_drawerOpen && wasMobile)
+        {
+            // De móvil a desktop: abrir drawer
+            _drawerOpen = true;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                // Suscripción al viewport: requiere JS interop, por eso va aquí y no en OnInitializedAsync.
+                var options = new MudBlazor.Services.ResizeOptions
+                {
+                    NotifyOnBreakpointOnly = true
+                };
+                await ViewportService.SubscribeAsync(_viewportSubscriptionId, OnViewportChanged, options, fireImmediately: true);
+            }
+            catch (JSException)
+            {
+                // Prerender/sandbox: se conserva el valor por defecto (_isMobile = true, drawer cerrado)
+            }
+            catch (InvalidOperationException)
+            {
+                // JSRuntime no disponible: se conserva el valor por defecto
+            }
+            try
+            {
+                var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "inventanet_dark");
+                if (bool.TryParse(saved, out var parsed))
+                {
+                    _isDarkMode = parsed;
+                }
+                else if (_themeProvider is not null)
+                {
+                    _isDarkMode = await _themeProvider.GetSystemDarkModeAsync();
+                }
+                StateHasChanged();
+            }
+            catch (JSException)
+            {
+                // Prerender/sandbox: ignorar, usar valor por defecto
+            }
+            catch (InvalidOperationException)
+            {
+                // JSRuntime no disponible: ignorar
+            }
+        }
+    }
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    private async Task ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "inventanet_dark", _isDarkMode.ToString()); }
+        catch (JSException) { /* ignorar en prerender/sandbox */ }
+        catch (InvalidOperationException) { /* JSRuntime no disponible */ }
+    }
+
+    private void CloseDrawerOnMobile()
+    {
+        if (_isMobile && _drawerOpen)
+        {
+            _drawerOpen = false;
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await ViewportService.UnsubscribeAsync(_viewportSubscriptionId);
+    }
+}
