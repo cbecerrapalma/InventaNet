@@ -6,9 +6,9 @@ Sistema de gestión de inventario y ventas en .NET 10: productos con variantes y
 
 - **Catálogo**: productos, variantes y presentaciones, categorías, imágenes de producto y catálogos.
 - **Inventario**: stock por bodega y movimientos.
-- **Comercial**: compras, ventas, precios, ofertas, promociones y precios mayoristas.
+- **Comercial**: compras, ventas, precios, ofertas y promociones.
 - **Importación** de productos desde planillas Excel.
-- **Backoffice** web (Blazor WebAssembly + MudBlazor) con menú según los permisos del usuario y selector de tenant.
+- **Backoffice** web (Blazor WebAssembly + MudBlazor) con menú según los permisos del usuario, selector de tenant y login con proveedores externos a través de PassPlat.
 - **Tienda** pública (Blazor WebAssembly): catálogo, detalle de producto, login de clientes y contacto.
 - **Multi-tenant**: toda consulta se filtra por el tenant del JWT emitido por PassPlat.
 - **API REST** con ProblemDetails, correlación de peticiones, `/health` y Swagger.
